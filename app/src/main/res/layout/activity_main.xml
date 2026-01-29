@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#333232"
+    tools:context=".MainActivity">
+
+    <!-- TextView for displaying distance and time -->
+
+    <org.osmdroid.views.MapView
+        android:id="@+id/map"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        app:layout_constraintBottom_toTopOf="@+id/button_container"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.0"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <TextView
+        android:id="@+id/stats_display"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="#00000000"
+        android:elevation="2dp"
+        android:gravity="center"
+        android:outlineProvider="none"
+        android:padding="4dp"
+        android:shadowColor="#FAF8F8"
+        android:shadowDx="3"
+        android:shadowDy="2"
+        android:shadowRadius="2"
+        android:textColor="#101010"
+        android:textSize="23sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/map"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHeight_percent="0.2"
+        app:layout_constraintHorizontal_bias="0.0"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintWidth_percent="0.5"
+        tools:ignore="NotSibling" />
+
+    <LinearLayout
+        android:id="@+id/button_container"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:orientation="horizontal"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.5"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/map"
+        app:layout_constraintVertical_bias="0.5">
+
+        <ImageButton
+            android:id="@+id/button_start"
+            android:layout_width="0dp"
+            android:layout_height="49dp"
+            android:layout_weight="1"
+            android:background="#1B1D2D"
+            android:contentDescription="Start GPS"
+            android:padding="40dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/baseline_gps_fixed_24" />
+
+        <ImageButton
+            android:id="@+id/button_stop"
+            android:layout_width="0dp"
+            android:layout_height="49dp"
+            android:layout_weight="1"
+            android:background="#1B1D2D"
+            android:contentDescription="Stop GPS"
+            android:padding="40dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/baseline_gps_off_24" />
+
+        <ImageButton
+            android:id="@+id/button_view_stats"
+            android:layout_width="0dp"
+            android:layout_height="49dp"
+            android:layout_weight="1"
+            android:background="#1B1D2D"
+            android:contentDescription="View Stats"
+            android:padding="40dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/baseline_query_stats_24" />
+
+        <ImageButton
+            android:id="@+id/button_view_satellites"
+            android:layout_width="0dp"
+            android:layout_height="49dp"
+            android:layout_weight="1"
+            android:background="#1B1D2D"
+            android:contentDescription="View Satellites"
+            android:padding="40dp"
+            android:scaleType="centerInside"
+            android:src="@drawable/baseline_satellite_alt_24" />
+    </LinearLayout>
+
+    <!-- Floating Action Button for loading KML -->
+
+    <!-- New Floating Action Button for toggling POI visibility -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_search"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="8dp"
+        android:layout_gravity="top|end"
+        android:backgroundTint="#D50000"
+        android:scaleType="center"
+        android:src="@drawable/search_24"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/fab_toggle_poi"
+        app:maxImageSize="28dp"
+        app:fabSize="mini"
+        tools:ignore="MissingConstraints" />
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_load_kml"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="8dp"
+        android:layout_gravity="top|end"
+        android:backgroundTint="#D50000"
+        android:contentDescription="@string/load_kml_desc"
+        android:scaleType="center"
+        android:src="@drawable/load_kml"
+        app:fabSize="mini"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        app:maxImageSize="28dp" />
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_toggle_poi"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="8dp"
+        android:layout_gravity="top|end"
+        android:backgroundTint="#D50000"
+        android:scaleType="center"
+        android:src="@drawable/ic_toggle_poi"
+        app:fabSize="mini"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/fab_load_kml"
+        app:maxImageSize="28dp"
+        tools:ignore="MissingConstraints" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>

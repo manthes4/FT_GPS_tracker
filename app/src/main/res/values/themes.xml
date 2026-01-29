@@ -1,0 +1,16 @@
+<!-- res/values/themes.xml -->
+<resources>
+    <!-- Base application theme -->
+    <style name="Theme.GPSTracker" parent="Theme.AppCompat.Light.NoActionBar">
+        <!-- Εδώ αφαιρούμε το windowBackground -->
+    </style>
+
+    <!-- Splash Screen Theme -->
+    <style name="Theme.GPSTracker.Splash" parent="Theme.GPSTracker">
+        <!-- Customize splash screen specific theme here if needed -->
+        <item name="android:windowBackground">@drawable/gps1</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
+</resources>
+
+

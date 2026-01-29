@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:background="#454349"
+    android:orientation="vertical">
+
+    <!-- Container for labels (ΗΜΕΡΟΜΗΝΙΑ, ΧΡΟΝΟΣ, ΑΠΟΣΤΑΣΗ) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="horizontal"
+        android:background="#CD0303"
+        android:padding="8dp">
+
+        <!-- ΗΜΕΡΟΜΗΝΙΑ label -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="-20dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="ΗΜΕΡΟΜΗΝΙΑ"
+            android:textColor="@color/white"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <!-- ΧΡΟΝΟΣ label -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="-8dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:paddingStart="20dp"
+            android:text="ΧΡΟΝΟΣ"
+            android:textColor="@color/white"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <!-- ΑΠΟΣΤΑΣΗ label -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="-44dp"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:paddingStart="15dp"
+            android:text="ΑΠΟΣΤΑΣΗ"
+            android:textColor="@color/white"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Scrollable container for stats -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:id="@+id/stats_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="2dp">
+            <!-- Τα στατιστικά και οι διαχωριστικές γραμμές θα τοποθετηθούν εδώ -->
+        </LinearLayout>
+
+    </ScrollView>
+
+    <!-- FloatingActionButton for deleting all stats -->
+    <androidx.coordinatorlayout.widget.CoordinatorLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <com.google.android.material.floatingactionbutton.FloatingActionButton
+            android:id="@+id/fab_delete_all"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|top"
+            android:layout_margin="5dp"
+            app:maxImageSize="36dp"
+            android:contentDescription="Delete all stats"
+            android:src="@drawable/baseline_delete_24"
+            android:backgroundTint="@android:color/holo_red_dark" />
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>
+</LinearLayout>

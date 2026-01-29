@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">FT GPS tracker</string>
+    <string name="load_kml_desc">Load KML File</string>
+</resources>

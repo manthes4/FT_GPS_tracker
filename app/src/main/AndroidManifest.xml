@@ -1,0 +1,49 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.gpstracker">
+
+    <!-- Permissions for location access -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- For Android 13 and above -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@drawable/ic_location"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/ic_location"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.GPSTracker">
+
+        <!-- Foreground Service Declaration -->
+        <service
+            android:name=".LocationTrackingService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
+
+        <!-- Splash Screen Activity with custom Splash Theme -->
+        <activity android:name=".SplashActivity"
+            android:exported="true"
+            android:theme="@style/Theme.GPSTracker.Splash">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Main Activity -->
+        <activity android:name=".MainActivity"
+            android:configChanges="orientation|screenSize"
+            android:exported="true" />
+
+        <!-- Stats Activity -->
+        <activity android:name=".StatsActivity" />
+
+    </application>
+
+</manifest>
