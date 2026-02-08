@@ -103,6 +103,9 @@ class MainActivity : AppCompatActivity() {
     private val CHANNEL_ID = "gps_tracker_channel"
     private val poiMarkers = mutableListOf<org.osmdroid.views.overlay.Marker>()
 
+    private lateinit var routePlanner: RoutePlannerHelper
+    private var isPlanningEnabled = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Configuration.getInstance().load(this, getPreferences(Context.MODE_PRIVATE))
@@ -128,6 +131,44 @@ class MainActivity : AppCompatActivity() {
         val rotationGestureOverlay = RotationGestureOverlay(map)
         rotationGestureOverlay.isEnabled = true
         map.overlays.add(rotationGestureOverlay)
+
+        // Αρχικοποίηση του Helper
+        routePlanner = RoutePlannerHelper(this, map)
+
+// Ένα κουμπί (π.χ. ImageButton) για ενεργοποίηση/απενεργοποίηση του Planning
+        val btnPlan = findViewById<ImageButton>(R.id.button_plan_mode)
+        btnPlan.setOnClickListener {
+            isPlanningEnabled = !isPlanningEnabled
+            if (isPlanningEnabled) {
+                showCustomToast("Planning Mode: ON (Long press on map)")
+                btnPlan.setColorFilter(Color.GREEN)
+            } else {
+                showCustomToast("Planning Mode: OFF")
+                btnPlan.setColorFilter(null)
+            }
+        }
+
+// Κουμπί Clear για σβήσιμο της σχεδίασης
+        val btnClearPlan = findViewById<ImageButton>(R.id.button_clear_plan)
+        btnClearPlan.setOnClickListener {
+            routePlanner.clearAll()
+            showCustomToast("Planning cleared")
+        }
+
+// Ο Listener για το Long Click
+        val mEventsReceiver = object : org.osmdroid.events.MapEventsReceiver {
+            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean = false
+
+            override fun longPressHelper(p: GeoPoint?): Boolean {
+                if (isPlanningEnabled && p != null) {
+                    val totalDistance = routePlanner.addPoint(p)
+                    showCustomToast("Total distance: ${String.format("%.3f", totalDistance)} km")
+                    return true
+                }
+                return false
+            }
+        }
+        map.overlays.add(org.osmdroid.views.overlay.MapEventsOverlay(mEventsReceiver))
 
         // Δημιουργία του MyLocationNewOverlay
         locationOverlay = MyLocationNewOverlay(map).apply {
