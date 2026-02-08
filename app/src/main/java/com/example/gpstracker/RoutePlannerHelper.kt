@@ -2,6 +2,7 @@ package com.example.gpstracker
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Paint
 import android.location.Location
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -12,28 +13,35 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
 
     private var planningPoints = mutableListOf<GeoPoint>()
     private var planningMarkers = mutableListOf<Marker>()
+
+    // Δημιουργία της γραμμής με κόκκινο χρώμα και μεγαλύτερο πάχος
     private var planningPolyline = Polyline().apply {
-        outlinePaint.color = Color.BLUE
-        outlinePaint.strokeWidth = 7f
+        outlinePaint.color = Color.RED
+        outlinePaint.strokeWidth = 15f // Πιο παχιά γραμμή
+        outlinePaint.strokeCap = Paint.Cap.ROUND // Στρογγυλεμένες άκρες
+        outlinePaint.isAntiAlias = true
     }
 
-    // Προσθήκη σημείου και επιστροφή της συνολικής απόστασης σε km
     fun addPoint(point: GeoPoint): Double {
-        planningPoints.add(point)
-
-        // Σχεδίαση γραμμής
-        if (!map.overlays.contains(planningPolyline)) {
-            map.overlays.add(planningPolyline)
+        // Αν είναι το πρώτο σημείο, καθαρίζουμε τη γραμμή για σιγουριά
+        if (planningPoints.isEmpty()) {
+            planningPolyline.setPoints(mutableListOf())
+            if (!map.overlays.contains(planningPolyline)) {
+                map.overlays.add(planningPolyline)
+            }
         }
+
+        planningPoints.add(point)
         planningPolyline.addPoint(point)
 
-        // Προσθήκη Marker
         val marker = Marker(map).apply {
             position = point
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             title = "Σημείο ${planningPoints.size}"
-            icon = context.getDrawable(R.drawable.baseline_push_pin_24) // Βεβαιώσου ότι υπάρχει
+            // Χρήση ενός απλού icon ή του pin σου
+            icon = context.getDrawable(R.drawable.baseline_gps_fixed_24)
         }
+
         planningMarkers.add(marker)
         map.overlays.add(marker)
 
@@ -43,6 +51,8 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
 
     private fun calculateTotalDistance(): Double {
         var total = 0.0
+        if (planningPoints.size < 2) return 0.0
+
         for (i in 0 until planningPoints.size - 1) {
             val start = planningPoints[i]
             val end = planningPoints[i + 1]
@@ -50,12 +60,31 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
             Location.distanceBetween(start.latitude, start.longitude, end.latitude, end.longitude, results)
             total += results[0]
         }
-        return total / 1000.0 // Επιστροφή σε χιλιόμετρα
+        return total / 1000.0
+    }
+
+    fun undoLastPoint(): Double {
+        if (planningPoints.isNotEmpty()) {
+            // 1. Αφαίρεση του τελευταίου σημείου από τη λίστα
+            planningPoints.removeAt(planningPoints.size - 1)
+
+            // 2. Ενημέρωση της γραμμής (την αδειάζουμε και ξαναβάζουμε τα σημεία που έμειναν)
+            planningPolyline.setPoints(planningPoints)
+
+            // 3. Αφαίρεση του τελευταίου Marker από τον χάρτη και τη λίστα
+            if (planningMarkers.isNotEmpty()) {
+                val lastMarker = planningMarkers.removeAt(planningMarkers.size - 1)
+                map.overlays.remove(lastMarker)
+            }
+
+            map.invalidate()
+        }
+        return calculateTotalDistance()
     }
 
     fun clearAll() {
         map.overlays.remove(planningPolyline)
-        planningPolyline.points.clear()
+        planningPolyline.setPoints(mutableListOf()) // Πλήρες άδειασμα των σημείων
         for (marker in planningMarkers) {
             map.overlays.remove(marker)
         }
@@ -63,6 +92,4 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
         planningPoints.clear()
         map.invalidate()
     }
-
-    fun getPointsCount(): Int = planningPoints.size
 }

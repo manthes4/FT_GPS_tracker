@@ -136,7 +136,7 @@ class MainActivity : AppCompatActivity() {
         routePlanner = RoutePlannerHelper(this, map)
 
 // Ένα κουμπί (π.χ. ImageButton) για ενεργοποίηση/απενεργοποίηση του Planning
-        val btnPlan = findViewById<ImageButton>(R.id.button_plan_mode)
+        val btnPlan = findViewById<FloatingActionButton>(R.id.button_plan_mode)
         btnPlan.setOnClickListener {
             isPlanningEnabled = !isPlanningEnabled
             if (isPlanningEnabled) {
@@ -148,11 +148,31 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val btnUndo = findViewById<FloatingActionButton>(R.id.button_undo_plan)
+        btnUndo.setOnClickListener {
+            if (isPlanningEnabled) {
+                val newDistance = routePlanner.undoLastPoint()
+                showCustomToast("Τελευταίο σημείο αφαιρέθηκε. Νέα απόσταση: ${String.format("%.3f", newDistance)} km")
+            } else {
+                showCustomToast("Ενεργοποιήστε το Planning Mode πρώτα")
+            }
+        }
+
 // Κουμπί Clear για σβήσιμο της σχεδίασης
-        val btnClearPlan = findViewById<ImageButton>(R.id.button_clear_plan)
+// Κουμπί Clear για σβήσιμο της σχεδίασης ΚΑΙ απενεργοποίηση του Mode
+        val btnClearPlan = findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.button_clear_plan)
         btnClearPlan.setOnClickListener {
+            // 1. Καθαρισμός γραμμών και markers από τον χάρτη
             routePlanner.clearAll()
-            showCustomToast("Planning cleared")
+
+            // 2. Απενεργοποίηση του Planning Mode
+            isPlanningEnabled = false
+
+            // 3. Επαναφορά του χρώματος στο κουμπί btnPlan (για να μη φαίνεται πράσινο)
+            val btnPlan = findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.button_plan_mode)
+            btnPlan.imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+
+            showCustomToast("Planning cleared & Mode OFF")
         }
 
 // Ο Listener για το Long Click
