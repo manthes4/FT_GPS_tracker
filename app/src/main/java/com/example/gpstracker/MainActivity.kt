@@ -105,6 +105,7 @@ class MainActivity : AppCompatActivity() {
     private var startTime: Long = 0
     private val handler = Handler()
     private var locationMarker: Marker? = null // Declare locationMarker here
+    private var lastPlanningPoint: GeoPoint? = null
     private lateinit var updateStatsRunnable: Runnable
 
     private var availableSatellites = 0
@@ -116,6 +117,7 @@ class MainActivity : AppCompatActivity() {
     private val poiMarkers = mutableListOf<org.osmdroid.views.overlay.Marker>()
 
     private lateinit var routePlanner: RoutePlannerHelper
+    private var planningInfoMarker: Marker? = null
     private var isPlanningEnabled = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -163,7 +165,8 @@ class MainActivity : AppCompatActivity() {
 
                 if (isPlanningEnabled) {
                     val totalDistance = routePlanner.addPoint(p)
-                    showCustomToast("Total distance: ${String.format("%.3f", totalDistance)} km")
+                    lastPlanningPoint = p // Αποθήκευση του τελευταίου σημείου
+                    updatePlanningInfoWindow(p, totalDistance)
                 } else {
                     // Αν δεν είναι planning, κάνει την απλή δρομολόγηση που είχες
                     handleLongClick(p)
@@ -191,39 +194,12 @@ class MainActivity : AppCompatActivity() {
         val btnUndo = findViewById<FloatingActionButton>(R.id.button_undo_plan)
         btnUndo.setOnClickListener {
             if (isPlanningEnabled) {
-                val newDistance = routePlanner.undoLastPoint()
-                showCustomToast(
-                    "Τελευταίο σημείο αφαιρέθηκε. Νέα απόσταση: ${
-                        String.format(
-                            "%.3f",
-                            newDistance
-                        )
-                    } km"
-                )
-            } else {
-                showCustomToast("Ενεργοποιήστε το Planning Mode πρώτα")
+                routePlanner.undoLastPoint()
+                // Σε περίπτωση Undo, επειδή χάνουμε το προηγούμενο σημείο,
+                // κλείνουμε το info window για να μην δείχνει λάθος απόσταση
+                planningInfoMarker?.closeInfoWindow()
+                lastPlanningPoint = null
             }
-        }
-
-// Κουμπί Clear για σβήσιμο της σχεδίασης
-// Κουμπί Clear για σβήσιμο της σχεδίασης ΚΑΙ απενεργοποίηση του Mode
-        val btnClearPlan =
-            findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.button_clear_plan)
-        btnClearPlan.setOnClickListener {
-            // 1. Καθαρισμός γραμμών και markers από τον χάρτη
-            routePlanner.clearAll()
-
-            // 2. Απενεργοποίηση του Planning Mode
-            isPlanningEnabled = false
-
-            // 3. Επαναφορά του χρώματος στο κουμπί btnPlan (για να μη φαίνεται πράσινο)
-            val btnPlan =
-                findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(
-                    R.id.button_plan_mode
-                )
-            btnPlan.imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-
-            showCustomToast("Planning cleared & Mode OFF")
         }
 
         // Δημιουργία του MyLocationNewOverlay
@@ -1256,7 +1232,7 @@ class MainActivity : AppCompatActivity() {
     private fun handleLongClick(point: GeoPoint) {
         if (startPoint == null || (startPoint != null && endPoint != null)) {
             // Καθαρισμός αν υπήρχε προηγούμενη διαδρομή και ορισμός νέας αφετηρίας
-            clearRouting()
+            clearMapRouting()
             startPoint = point
             startMarker = addMarker(point, "Αφετηρία", R.drawable.edit_location_alt_24px) // Βάλε ένα δικό σου εικονίδιο
             showCustomToast("Ορίστηκε Αφετηρία")
@@ -1282,14 +1258,29 @@ class MainActivity : AppCompatActivity() {
         return marker
     }
 
-    private fun clearRouting() {
-        startPoint = null
-        endPoint = null
-        startMarker?.let { map.overlays.remove(it) }
-        endMarker?.let { map.overlays.remove(it) }
-        roadOverlay?.let { map.overlays.remove(it) }
-        startMarker = null
-        endMarker = null
+    private fun updatePlanningInfoWindow(point: GeoPoint, totalDistance: Double) {
+        if (planningInfoMarker == null) {
+            planningInfoMarker = Marker(map)
+
+            // Αντί για null, φτιάχνουμε ένα αόρατο εικονίδιο 1x1
+            val transparentBitmap = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+            transparentBitmap.eraseColor(android.graphics.Color.TRANSPARENT)
+            planningInfoMarker?.icon = android.graphics.drawable.BitmapDrawable(resources, transparentBitmap)
+
+            planningInfoMarker?.setInfoWindowAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_TOP)
+        }
+
+        planningInfoMarker?.position = point
+        planningInfoMarker?.title = "Σχεδιασμός Διαδρομής"
+        planningInfoMarker?.snippet = "Συνολική Απόσταση: ${String.format("%.3f", totalDistance)} km"
+
+        if (!map.overlays.contains(planningInfoMarker)) {
+            map.overlays.add(planningInfoMarker)
+        }
+
+        // Κλείνουμε και ξανανοίγουμε για να "φρεσκάρει" τη θέση του πάνω στο νέο σημείο
+        planningInfoMarker?.closeInfoWindow()
+        planningInfoMarker?.showInfoWindow()
         map.invalidate()
     }
 
