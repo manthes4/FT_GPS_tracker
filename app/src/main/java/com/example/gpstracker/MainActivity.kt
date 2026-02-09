@@ -61,6 +61,10 @@ import android.graphics.drawable.ColorDrawable
 import android.util.TypedValue
 import android.widget.ArrayAdapter
 import android.widget.ListView
+import org.osmdroid.bonuspack.routing.OSRMRoadManager
+import org.osmdroid.bonuspack.routing.RoadManager
+import org.osmdroid.bonuspack.routing.Road
+
 private var currentSearchMarker: Marker? = null
 
 class MainActivity : AppCompatActivity() {
@@ -76,6 +80,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fabLoadKml: FloatingActionButton
     private lateinit var fabSearch: FloatingActionButton
     private lateinit var fabTogglePOI: FloatingActionButton  // New FAB for POI toggle
+    private var roadOverlay: Polyline? = null // Μεταβλητή για να διαχειριζόμαστε τη γραμμή
 
     private var isTracking = false
     private var route: Polyline? = null
@@ -967,7 +972,8 @@ class MainActivity : AppCompatActivity() {
 
         // Προσθέτουμε lat/lon στο URL για να βοηθήσουμε το API να "καταλάβει" την περιοχή μας
         val proximity = if (myLoc != null) "&lat=${myLoc.latitude}&lon=${myLoc.longitude}" else ""
-        val url = "https://nominatim.openstreetmap.org/search?q=$query&format=json&addressdetails=1&limit=20&accept-language=el$proximity"
+        val url =
+            "https://nominatim.openstreetmap.org/search?q=$query&format=json&addressdetails=1&limit=20&accept-language=el$proximity"
 
         val client = OkHttpClient()
         val request = Request.Builder().url(url).header("User-Agent", "GPSTrackerApp").build()
@@ -989,7 +995,10 @@ class MainActivity : AppCompatActivity() {
                     val refLat = myLoc?.latitude ?: map.mapCenter.latitude
                     val refLon = myLoc?.longitude ?: map.mapCenter.longitude
 
-                    Log.d("SEARCH_DEBUG", "Reference Point: Lat $refLat, Lon $refLon") // LOG 2: Πού νομίζει ότι είσαι
+                    Log.d(
+                        "SEARCH_DEBUG",
+                        "Reference Point: Lat $refLat, Lon $refLon"
+                    ) // LOG 2: Πού νομίζει ότι είσαι
 
                     for (i in 0 until jsonArray.length()) {
                         val obj = jsonArray.getJSONObject(i)
@@ -1002,10 +1011,16 @@ class MainActivity : AppCompatActivity() {
 // --- ΔΙΟΡΘΩΣΗ ΟΝΟΜΑΤΟΣ (V2) ---
                         val road = addr.optString("road", addr.optString("pedestrian", ""))
 // Ψάχνουμε το όνομα του μέρους με σειρά προτεραιότητας
-                        val placeName = addr.optString("village",
-                            addr.optString("town",
-                                addr.optString("suburb",
-                                    addr.optString("city", ""))))
+                        val placeName = addr.optString(
+                            "village",
+                            addr.optString(
+                                "town",
+                                addr.optString(
+                                    "suburb",
+                                    addr.optString("city", "")
+                                )
+                            )
+                        )
 
                         val municipality = addr.optString("municipality", "")
 
@@ -1024,10 +1039,19 @@ class MainActivity : AppCompatActivity() {
 
                         // --- ΔΙΟΡΘΩΣΗ ΑΠΟΣΤΑΣΗΣ ---
                         val distResult = FloatArray(1)
-                        android.location.Location.distanceBetween(refLat, refLon, resLat, resLon, distResult)
+                        android.location.Location.distanceBetween(
+                            refLat,
+                            refLon,
+                            resLat,
+                            resLon,
+                            distResult
+                        )
                         val dist = distResult[0]
 
-                        Log.d("SEARCH_DEBUG", "Result: $displayTitle | Dist: $dist meters | Lat: $resLat, Lon: $resLon")
+                        Log.d(
+                            "SEARCH_DEBUG",
+                            "Result: $displayTitle | Dist: $dist meters | Lat: $resLat, Lon: $resLon"
+                        )
 
                         resultsList.add(SearchResult(displayTitle, resLat, resLon, dist))
                     }
@@ -1060,9 +1084,12 @@ class MainActivity : AppCompatActivity() {
 
         // 2. Δημιουργία του ListView (όπως το είχες)
         val listView = ListView(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_list_item_1, displayNames)
+            adapter =
+                ArrayAdapter(this@MainActivity, android.R.layout.simple_list_item_1, displayNames)
             divider = ColorDrawable(Color.RED)
-            dividerHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 2f, resources.displayMetrics).toInt()
+            dividerHeight =
+                TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 2f, resources.displayMetrics)
+                    .toInt()
         }
 
         val dialog = AlertDialog.Builder(this)
@@ -1074,8 +1101,25 @@ class MainActivity : AppCompatActivity() {
         // 3. Click Listener
         listView.setOnItemClickListener { _, _, which, _ ->
             val selected = results[which]
-            // Στέλνουμε το shortName χωρίς τα χιλιόμετρα για να μη γεμίζει ο χάρτης κείμενο
+
+            // 1. Πάρε το κέντρο του χάρτη ΤΩΡΑ (πριν το zoom) ως εναλλακτική
+            val currentMapCenter = GeoPoint(map.mapCenter.latitude, map.mapCenter.longitude)
+
+            // 2. Το σημείο προορισμού
+            val endGeoPoint = GeoPoint(selected.lat, selected.lon)
+
+            // 3. Η αφετηρία: Προσπάθησε για GPS, αλλιώς χρησιμοποίησε το τρέχον κέντρο
+            val startGeoPoint = locationOverlay.myLocation ?: currentMapCenter
+
+            Log.d("ROUTING_DEBUG", "Εκκίνηση διαδρομής από: ${startGeoPoint.latitude}, ${startGeoPoint.longitude}")
+            Log.d("ROUTING_DEBUG", "Προς προορισμό: ${endGeoPoint.latitude}, ${endGeoPoint.longitude}")
+
+            // 4. Κάλεσε τη διαδρομή
+            calculateRoute(startGeoPoint, endGeoPoint)
+
+            // 5. Τώρα κάνε το zoom στον προορισμό
             zoomToLocation(selected.lat, selected.lon, selected.shortName)
+
             dialog.dismiss()
         }
 
@@ -1126,5 +1170,54 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Ακύρωση") { dialog, _ -> dialog.dismiss() }
             .create()
             .show()
+    }
+
+    private fun calculateRoute(startPoint: GeoPoint, endPoint: GeoPoint) {
+        Thread {
+            try {
+                // Χρησιμοποιούμε ΜΟΝΟ τον constructor.
+                // Η βιβλιοθήκη θα χρησιμοποιήσει το default: http://router.project-osrm.org/vi/driving/
+                val roadManager = OSRMRoadManager(this, packageName)
+
+                // ΜΗΝ βάλεις roadManager.setService εδώ.
+
+                val waypoints = arrayListOf(startPoint, endPoint)
+                val road = roadManager.getRoad(waypoints)
+
+                Log.d("ROUTING_DEBUG", "Status: ${road.mStatus}")
+
+                runOnUiThread {
+                    if (road.mStatus == Road.STATUS_OK) {
+                        // 1. Καθαρισμός προηγούμενων διαδρομών
+                        if (roadOverlay != null) {
+                            map.overlays.remove(roadOverlay)
+                        }
+
+                        roadOverlay = RoadManager.buildRoadOverlay(road)
+                        roadOverlay?.outlinePaint?.apply {
+                            // Χρησιμοποίησε όποιο Hex θέλεις εδώ
+                            color = Color.parseColor("#5E31F7") // Ένα όμορφο Google Blue
+
+                            strokeWidth = 15f                   // Πάχος γραμμής
+                            strokeCap = Paint.Cap.ROUND         // Στρογγυλεμένες άκρες
+                            isAntiAlias = true                  // Για να μην "πιξελιάζει" η γραμμή
+                        }
+
+                        map.overlays.add(roadOverlay)
+
+                        // 3. ΕΣΤΙΑΣΗ ΣΤΗ ΔΙΑΔΡΟΜΗ (Πολύ σημαντικό)
+                        val boundingBox = road.mBoundingBox
+                        map.zoomToBoundingBox(boundingBox, true, 100)
+
+                        map.invalidate() // Ανανέωση χάρτη
+                        showCustomToast("Διαδρομή έτοιμη!")
+                    } else {
+                        showCustomToast("Σφάλμα διαδρομής")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("ROUTING_DEBUG", "Error: ${e.message}")
+            }
+        }.start()
     }
 }

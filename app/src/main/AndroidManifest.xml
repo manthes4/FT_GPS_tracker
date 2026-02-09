@@ -17,6 +17,7 @@
         android:icon="@drawable/ic_location"
         android:label="@string/app_name"
         android:roundIcon="@drawable/ic_location"
+        android:usesCleartextTraffic="true"
         android:supportsRtl="true"
         android:theme="@style/Theme.GPSTracker">
 
