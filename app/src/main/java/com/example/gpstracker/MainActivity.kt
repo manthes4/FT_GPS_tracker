@@ -999,22 +999,27 @@ class MainActivity : AppCompatActivity() {
                         val resLon = obj.getDouble("lon")
 
                         // --- ΔΙΟΡΘΩΣΗ ΟΝΟΜΑΤΟΣ ---
+// --- ΔΙΟΡΘΩΣΗ ΟΝΟΜΑΤΟΣ (V2) ---
                         val road = addr.optString("road", addr.optString("pedestrian", ""))
-                        val suburb = addr.optString("suburb", addr.optString("neighbourhood", ""))
-                        val city = addr.optString("city", addr.optString("town", addr.optString("municipality", "")))
+// Ψάχνουμε το όνομα του μέρους με σειρά προτεραιότητας
+                        val placeName = addr.optString("village",
+                            addr.optString("town",
+                                addr.optString("suburb",
+                                    addr.optString("city", ""))))
+
+                        val municipality = addr.optString("municipality", "")
 
                         val displayTitle = buildString {
-                            if (road.isNotEmpty()) append(road)
-                            if (suburb.isNotEmpty()) {
-                                if (isNotEmpty()) append(", ")
-                                append(suburb)
+                            if (road.isNotEmpty()) {
+                                append(road)
+                                if (placeName.isNotEmpty()) append(", $placeName")
+                            } else if (placeName.isNotEmpty()) {
+                                append(placeName)
+                                if (municipality.isNotEmpty()) append(", $municipality")
+                            } else {
+                                // Αν δεν βρούμε τίποτα από τα παραπάνω, παίρνουμε το display_name από το OSM
+                                append(obj.optString("display_name", "").split(",")[0])
                             }
-                            if (city.isNotEmpty()) {
-                                if (isNotEmpty()) append(", ")
-                                append(city)
-                            }
-                            // Αν όλα τα παραπάνω λείπουν, πάρε το πρώτο κομμάτι του display_name
-                            if (isEmpty()) append(obj.optString("display_name", "").split(",")[0])
                         }
 
                         // --- ΔΙΟΡΘΩΣΗ ΑΠΟΣΤΑΣΗΣ ---
