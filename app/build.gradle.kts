@@ -70,5 +70,10 @@ dependencies {
     implementation("org.osmdroid:osmdroid-android:6.1.10")
     implementation("com.google.android.material:material:1.8.0")
     implementation("org.osmdroid:osmdroid-wms:6.1.10")
-    implementation("com.squareup.okhttp3:okhttp:4.10.0")
+
+    // Για τις κλήσεις στο Internet (Nominatim API)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Προαιρετικά, αν δεν υπάρχει ήδη για τα JSON (συνήθως περιλαμβάνεται στην Kotlin)
+    implementation("org.json:json:20231013")
 }

@@ -55,12 +55,13 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import android.hardware.Sensor
-import android.hardware.SensorEvent
-import android.hardware.SensorEventListener
-import android.hardware.SensorManager
 import android.net.Uri
 import android.widget.ImageButton
+import android.graphics.drawable.ColorDrawable
+import android.util.TypedValue
+import android.widget.ArrayAdapter
+import android.widget.ListView
+private var currentSearchMarker: Marker? = null
 
 class MainActivity : AppCompatActivity() {
 
@@ -152,7 +153,14 @@ class MainActivity : AppCompatActivity() {
         btnUndo.setOnClickListener {
             if (isPlanningEnabled) {
                 val newDistance = routePlanner.undoLastPoint()
-                showCustomToast("Τελευταίο σημείο αφαιρέθηκε. Νέα απόσταση: ${String.format("%.3f", newDistance)} km")
+                showCustomToast(
+                    "Τελευταίο σημείο αφαιρέθηκε. Νέα απόσταση: ${
+                        String.format(
+                            "%.3f",
+                            newDistance
+                        )
+                    } km"
+                )
             } else {
                 showCustomToast("Ενεργοποιήστε το Planning Mode πρώτα")
             }
@@ -160,7 +168,8 @@ class MainActivity : AppCompatActivity() {
 
 // Κουμπί Clear για σβήσιμο της σχεδίασης
 // Κουμπί Clear για σβήσιμο της σχεδίασης ΚΑΙ απενεργοποίηση του Mode
-        val btnClearPlan = findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.button_clear_plan)
+        val btnClearPlan =
+            findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.button_clear_plan)
         btnClearPlan.setOnClickListener {
             // 1. Καθαρισμός γραμμών και markers από τον χάρτη
             routePlanner.clearAll()
@@ -169,7 +178,10 @@ class MainActivity : AppCompatActivity() {
             isPlanningEnabled = false
 
             // 3. Επαναφορά του χρώματος στο κουμπί btnPlan (για να μη φαίνεται πράσινο)
-            val btnPlan = findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.button_plan_mode)
+            val btnPlan =
+                findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(
+                    R.id.button_plan_mode
+                )
             btnPlan.imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
 
             showCustomToast("Planning cleared & Mode OFF")
@@ -943,56 +955,138 @@ class MainActivity : AppCompatActivity() {
         notificationManager.notify(1, notificationBuilder.build())
     }
 
+    data class SearchResult(val shortName: String, val lat: Double, val lon: Double)
+
+    private fun performNominatimSearch(query: String) {
+        // Παίρνουμε την τρέχουσα τοποθεσία από το locationOverlay (αν υπάρχει)
+        val myLoc = locationOverlay.myLocation
+        val viewboxParam = if (myLoc != null) {
+            // Δημιουργούμε ένα "παράθυρο" αναζήτησης γύρω από τον χρήστη (περίπου +/- 0.5 μοίρες)
+            "&viewbox=${myLoc.longitude-0.5},${myLoc.latitude+0.5},${myLoc.longitude+0.5},${myLoc.latitude-0.5}&bounded=0"
+        } else ""
+
+        val url = "https://nominatim.openstreetmap.org/search?q=$query&format=json&addressdetails=1&limit=15&accept-language=el$viewboxParam"
+
+        val client = OkHttpClient()
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "GPSTrackerApp")
+            .build()
+
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: IOException) {
+                runOnUiThread { showCustomToast("Σφάλμα σύνδεσης") }
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                val jsonData = response.body?.string()
+                if (jsonData != null) {
+                    try {
+                        val jsonArray = JSONArray(jsonData)
+                        val results = mutableListOf<SearchResult>()
+
+                        for (i in 0 until jsonArray.length()) {
+                            val obj = jsonArray.getJSONObject(i)
+                            val addr = obj.optJSONObject("address") ?: JSONObject()
+
+                            // Παίρνουμε περισσότερα στοιχεία για να ξέρουμε πού βρισκόμαστε
+                            val road = addr.optString("road", addr.optString("pedestrian", ""))
+                            val houseNumber = addr.optString("house_number", "")
+                            val suburb = addr.optString("suburb", addr.optString("neighbourhood", ""))
+                            val city = addr.optString("city", addr.optString("town", addr.optString("village", addr.optString("municipality", ""))))
+
+                            // Φτιάχνουμε μια πιο πλήρη περιγραφή: π.χ. "Ακροπόλεως 21, Άνω Πόλη, Θεσσαλονίκη"
+                            val fullDesc = buildString {
+                                if (road.isNotEmpty()) append(road)
+                                if (houseNumber.isNotEmpty()) append(" $houseNumber")
+                                if (suburb.isNotEmpty()) append(", $suburb")
+                                if (city.isNotEmpty()) append(", $city")
+                                if (isEmpty()) append(obj.getString("display_name").take(50) + "...")
+                            }
+
+                            results.add(SearchResult(fullDesc, obj.getDouble("lat"), obj.getDouble("lon")))
+                        }
+
+                        runOnUiThread {
+                            if (results.isEmpty()) showCustomToast("Δεν βρέθηκαν αποτελέσματα")
+                            else showNominatimSelectionDialog(results)
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread { showCustomToast("Σφάλμα στην ανάλυση") }
+                    }
+                }
+            }
+        })
+    }
+
+    private fun showNominatimSelectionDialog(results: List<SearchResult>) {
+        val displayNames = results.map { it.shortName }.toTypedArray()
+
+        val listView = ListView(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_list_item_1, displayNames)
+            divider = ColorDrawable(Color.RED)
+            dividerHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 2f, resources.displayMetrics).toInt()
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Επιλέξτε τοποθεσία:")
+            .setView(listView)
+            .setNegativeButton("Άκυρο", null)
+            .create()
+
+        listView.setOnItemClickListener { _, _, which, _ ->
+            val selected = results[which]
+            // Εδώ το όνομα πρέπει να συμπίπτει με τη συνάρτηση παρακάτω
+            zoomToLocation(selected.lat, selected.lon, selected.shortName)
+            dialog.dismiss()
+        }
+
+        dialog.show()
+    }
+
+    private fun zoomToLocation(lat: Double, lon: Double, name: String) {
+        val geoPoint = GeoPoint(lat, lon)
+        map.controller.setCenter(geoPoint)
+        map.controller.setZoom(18.0)
+
+        // 1. Αφαίρεση του προηγούμενου marker αν υπάρχει
+        currentSearchMarker?.let {
+            map.overlays.remove(it)
+        }
+
+        // 2. Δημιουργία του νέου marker
+        val marker = Marker(map).apply {
+            position = geoPoint
+            title = name
+            // Χρησιμοποίησε ένα εικονίδιο που έχεις, π.χ. το baseline_push_pin_24
+            icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.baseline_push_pin_24)
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+        }
+
+        // 3. Αποθήκευση στη μεταβλητή και προσθήκη στον χάρτη
+        currentSearchMarker = marker
+        map.overlays.add(marker)
+
+        map.invalidate() // Απαραίτητο για να ανανεωθεί ο χάρτης οπτικά
+
+        showCustomToast("Μετάβαση σε: $name")
+    }
+
     private fun showSearchDialog() {
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_search, null)
         val searchEditText = dialogView.findViewById<EditText>(R.id.search_edit_text)
 
         AlertDialog.Builder(this)
-            .setTitle("Search Location")
+            .setTitle("Αναζήτηση Τοποθεσίας")
             .setView(dialogView)
-            .setPositiveButton("Search") { dialog, _ ->
+            .setPositiveButton("Αναζήτηση") { dialog, _ ->
                 val searchQuery = searchEditText.text.toString()
-                performSearch(searchQuery)
+                // ΕΔΩ ΚΑΛΕΙΣ ΤΟ ΝΕΟ ΣΥΣΤΗΜΑ
+                performNominatimSearch(searchQuery)
                 dialog.dismiss()
             }
-            .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+            .setNegativeButton("Ακύρωση") { dialog, _ -> dialog.dismiss() }
             .create()
             .show()
-    }
-
-    private fun performSearch(query: String) {
-        val geocoder = Geocoder(this)
-        try {
-            val addresses = geocoder.getFromLocationName(query, 1)
-            if (addresses != null && addresses.isNotEmpty()) {
-                val location = addresses[0]
-                val geoPoint = GeoPoint(location.latitude, location.longitude)
-
-                // Center the map on the new location
-                map.controller.setCenter(geoPoint)
-                map.controller.setZoom(17.0)
-
-                // Add a marker for the searched location
-                val marker = org.osmdroid.views.overlay.Marker(map)
-                marker.position = geoPoint
-                marker.title = "Location: $query"
-                map.overlays.add(marker)
-
-                map.invalidate()
-                showCustomToast("Zooming to: $query")
-
-                // Refresh POIs if they are currently visible
-                if (arePOIsVisible) {
-                    fetchAndDisplayPOIs()
-                }
-            } else {
-                showCustomToast("No results found for: $query")
-            }
-        } catch (e: IOException) {
-            e.printStackTrace()
-            showCustomToast("Error searching for address")
-        } catch (e: IllegalArgumentException) {
-            showCustomToast("Invalid query: $query")
-        }
     }
 }
