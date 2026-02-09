@@ -23,7 +23,6 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
     }
 
     fun addPoint(point: GeoPoint): Double {
-        // Αν είναι το πρώτο σημείο, καθαρίζουμε τη γραμμή για σιγουριά
         if (planningPoints.isEmpty()) {
             planningPolyline.setPoints(mutableListOf())
             if (!map.overlays.contains(planningPolyline)) {
@@ -38,8 +37,28 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
             position = point
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             title = "Σημείο ${planningPoints.size}"
-            // Χρήση ενός απλού icon ή του pin σου
             icon = context.getDrawable(R.drawable.baseline_gps_fixed_24)
+
+            // --- ΕΝΕΡΓΟΠΟΙΗΣΗ ΜΕΤΑΚΙΝΗΣΗΣ ---
+            isDraggable = true
+            infoWindow = null // Κλείνουμε το default για να μην ενοχλεί
+
+            setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
+                override fun onMarkerDragStart(marker: Marker) {}
+
+                override fun onMarkerDrag(marker: Marker) {
+                    // Καθώς σέρνεις τον marker, η γραμμή τεντώνεται και ακολουθεί
+                    updateLineFromMarkers()
+                }
+
+                override fun onMarkerDragEnd(marker: Marker) {
+                    // Όταν αφήνεις τον marker, υπολογίζεται η τελική απόσταση
+                    updateLineFromMarkers()
+
+                    // ΠΡΟΑΙΡΕΤΙΚΑ: Αν θέλεις να ενημερώνεται η "καρτέλα" στην MainActivity
+                    // μπορείς να καλέσεις εδώ μια μέθοδο ενημέρωσης.
+                }
+            })
         }
 
         planningMarkers.add(marker)
@@ -47,6 +66,20 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
 
         map.invalidate()
         return calculateTotalDistance()
+    }
+
+    private fun updateLineFromMarkers() {
+        val newPoints = mutableListOf<GeoPoint>()
+        for (m in planningMarkers) {
+            newPoints.add(m.position)
+        }
+
+        // Ενημέρωση της λίστας σημείων και της γραμμής
+        planningPoints.clear()
+        planningPoints.addAll(newPoints)
+        planningPolyline.setPoints(planningPoints)
+
+        map.invalidate() // Ανανέωση χάρτη
     }
 
     private fun calculateTotalDistance(): Double {

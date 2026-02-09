@@ -1267,7 +1267,7 @@ class MainActivity : AppCompatActivity() {
             transparentBitmap.eraseColor(android.graphics.Color.TRANSPARENT)
             planningInfoMarker?.icon = android.graphics.drawable.BitmapDrawable(resources, transparentBitmap)
 
-            planningInfoMarker?.setInfoWindowAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_TOP)
+            planningInfoMarker?.setInfoWindowAnchor(0.5f, -65.0f)
         }
 
         planningInfoMarker?.position = point
