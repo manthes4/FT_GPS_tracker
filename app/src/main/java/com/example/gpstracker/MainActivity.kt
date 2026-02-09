@@ -64,6 +64,8 @@ import android.widget.ListView
 import org.osmdroid.bonuspack.routing.OSRMRoadManager
 import org.osmdroid.bonuspack.routing.RoadManager
 import org.osmdroid.bonuspack.routing.Road
+import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.views.overlay.MapEventsOverlay
 
 private var currentSearchMarker: Marker? = null
 
@@ -81,6 +83,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fabSearch: FloatingActionButton
     private lateinit var fabTogglePOI: FloatingActionButton  // New FAB for POI toggle
     private var roadOverlay: Polyline? = null // Μεταβλητή για να διαχειριζόμαστε τη γραμμή
+
+    private var startPoint: GeoPoint? = null
+    private var endPoint: GeoPoint? = null
 
     private var isTracking = false
     private var route: Polyline? = null
@@ -140,6 +145,20 @@ class MainActivity : AppCompatActivity() {
 
         // Αρχικοποίηση του Helper
         routePlanner = RoutePlannerHelper(this, map)
+
+        val eventsReceiver = object : MapEventsReceiver {
+            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
+                return false // Δεν κάνουμε κάτι στο απλό κλικ
+            }
+
+            override fun longPressHelper(p: GeoPoint?): Boolean {
+                p?.let { handleLongClick(it) }
+                return true
+            }
+        }
+
+        val eventsOverlay = MapEventsOverlay(eventsReceiver)
+        map.overlays.add(0, eventsOverlay) // Το βάζουμε στη θέση 0 για να πιάνει τα κλικ
 
 // Ένα κουμπί (π.χ. ImageButton) για ενεργοποίηση/απενεργοποίηση του Planning
         val btnPlan = findViewById<FloatingActionButton>(R.id.button_plan_mode)
@@ -1175,49 +1194,102 @@ class MainActivity : AppCompatActivity() {
     private fun calculateRoute(startPoint: GeoPoint, endPoint: GeoPoint) {
         Thread {
             try {
-                // Χρησιμοποιούμε ΜΟΝΟ τον constructor.
-                // Η βιβλιοθήκη θα χρησιμοποιήσει το default: http://router.project-osrm.org/vi/driving/
                 val roadManager = OSRMRoadManager(this, packageName)
-
-                // ΜΗΝ βάλεις roadManager.setService εδώ.
-
                 val waypoints = arrayListOf(startPoint, endPoint)
                 val road = roadManager.getRoad(waypoints)
 
-                Log.d("ROUTING_DEBUG", "Status: ${road.mStatus}")
+                Log.d("ROUTING_DEBUG", "Status: ${road.mStatus} | Distance: ${road.mLength} km")
 
                 runOnUiThread {
                     if (road.mStatus == Road.STATUS_OK) {
-                        // 1. Καθαρισμός προηγούμενων διαδρομών
-                        if (roadOverlay != null) {
-                            map.overlays.remove(roadOverlay)
-                        }
+                        // 1. Καθαρισμός προηγούμενης γραμμής
+                        roadOverlay?.let { map.overlays.remove(it) }
 
+                        // 2. Δημιουργία και Στυλ γραμμής
                         roadOverlay = RoadManager.buildRoadOverlay(road)
                         roadOverlay?.outlinePaint?.apply {
-                            // Χρησιμοποίησε όποιο Hex θέλεις εδώ
-                            color = Color.parseColor("#5E31F7") // Ένα όμορφο Google Blue
-
-                            strokeWidth = 15f                   // Πάχος γραμμής
-                            strokeCap = Paint.Cap.ROUND         // Στρογγυλεμένες άκρες
-                            isAntiAlias = true                  // Για να μην "πιξελιάζει" η γραμμή
+                            color = Color.parseColor("#5E31F7")
+                            strokeWidth = 15f
+                            strokeCap = Paint.Cap.ROUND
+                            isAntiAlias = true
                         }
 
-                        map.overlays.add(roadOverlay)
+                        // Προσθήκη στην κατάλληλη θέση (πίσω από markers)
+                        map.overlays.add(1, roadOverlay)
 
-                        // 3. ΕΣΤΙΑΣΗ ΣΤΗ ΔΙΑΔΡΟΜΗ (Πολύ σημαντικό)
-                        val boundingBox = road.mBoundingBox
-                        map.zoomToBoundingBox(boundingBox, true, 100)
+                        // 3. ΥΠΟΛΟΓΙΣΜΟΣ ΓΙΑ ΠΕΖΟ (5 km/h)
+                        val distanceKm = road.mLength
+                        // Χρόνος σε λεπτά = (Απόσταση / 5) * 60
+                        val walkingMinutes = (distanceKm / 5.0) * 60.0
 
-                        map.invalidate() // Ανανέωση χάρτη
-                        showCustomToast("Διαδρομή έτοιμη!")
+                        val timeText = if (walkingMinutes >= 60) {
+                            val hours = (walkingMinutes / 60).toInt()
+                            val mins = (walkingMinutes % 60).toInt()
+                            "${hours}ω και ${mins}λ"
+                        } else {
+                            "${walkingMinutes.toInt()} λεπτά"
+                        }
+
+                        // 4. Ενημέρωση UI
+                        val info = "Περπάτημα: $timeText\nΑπόσταση: ${String.format("%.2f", distanceKm)} km"
+                        showCustomToast(info)
+
+                        // Ενημέρωση Marker αν υπάρχει
+                        endMarker?.snippet = info
+                        endMarker?.showInfoWindow()
+
+                        // 5. Εστίαση και Ανανέωση
+                        map.zoomToBoundingBox(road.mBoundingBox.increaseByScale(1.2f), true)
+                        map.invalidate()
+
                     } else {
-                        showCustomToast("Σφάλμα διαδρομής")
+                        showCustomToast("Σφάλμα διαδρομής: ${road.mStatus}")
                     }
                 }
             } catch (e: Exception) {
                 Log.e("ROUTING_DEBUG", "Error: ${e.message}")
+                runOnUiThread { showCustomToast("Αποτυχία σύνδεσης στο δίκτυο") }
             }
         }.start()
+    }
+
+    private fun handleLongClick(point: GeoPoint) {
+        if (startPoint == null || (startPoint != null && endPoint != null)) {
+            // Καθαρισμός αν υπήρχε προηγούμενη διαδρομή και ορισμός νέας αφετηρίας
+            clearRouting()
+            startPoint = point
+            startMarker = addMarker(point, "Αφετηρία", R.drawable.edit_location_alt_24px) // Βάλε ένα δικό σου εικονίδιο
+            showCustomToast("Ορίστηκε Αφετηρία")
+        } else {
+            // Ορισμός προορισμού
+            endPoint = point
+            endMarker = addMarker(point, "Προορισμός", R.drawable.edit_location_alt_24px)
+
+            // Κλήση της routing συνάρτησης που ήδη έχεις
+            calculateRoute(startPoint!!, endPoint!!)
+        }
+    }
+
+    // Βοηθητική συνάρτηση για προσθήκη Marker
+    private fun addMarker(point: GeoPoint, title: String, iconRes: Int): Marker {
+        val marker = Marker(map)
+        marker.position = point
+        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+        marker.title = title
+        // marker.icon = resources.getDrawable(iconRes, null) // Προαιρετικά αν έχεις εικονίδιο
+        map.overlays.add(marker)
+        map.invalidate()
+        return marker
+    }
+
+    private fun clearRouting() {
+        startPoint = null
+        endPoint = null
+        startMarker?.let { map.overlays.remove(it) }
+        endMarker?.let { map.overlays.remove(it) }
+        roadOverlay?.let { map.overlays.remove(it) }
+        startMarker = null
+        endMarker = null
+        map.invalidate()
     }
 }
