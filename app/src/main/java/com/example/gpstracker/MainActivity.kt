@@ -955,23 +955,22 @@ class MainActivity : AppCompatActivity() {
         notificationManager.notify(1, notificationBuilder.build())
     }
 
-    data class SearchResult(val shortName: String, val lat: Double, val lon: Double)
+    data class SearchResult(
+        val shortName: String,
+        val lat: Double,
+        val lon: Double,
+        val distance: Float // <--- Πρέπει να είναι Float ή Double
+    )
 
     private fun performNominatimSearch(query: String) {
-        // Παίρνουμε την τρέχουσα τοποθεσία από το locationOverlay (αν υπάρχει)
         val myLoc = locationOverlay.myLocation
-        val viewboxParam = if (myLoc != null) {
-            // Δημιουργούμε ένα "παράθυρο" αναζήτησης γύρω από τον χρήστη (περίπου +/- 0.5 μοίρες)
-            "&viewbox=${myLoc.longitude-0.5},${myLoc.latitude+0.5},${myLoc.longitude+0.5},${myLoc.latitude-0.5}&bounded=0"
-        } else ""
 
-        val url = "https://nominatim.openstreetmap.org/search?q=$query&format=json&addressdetails=1&limit=15&accept-language=el$viewboxParam"
+        // Προσθέτουμε lat/lon στο URL για να βοηθήσουμε το API να "καταλάβει" την περιοχή μας
+        val proximity = if (myLoc != null) "&lat=${myLoc.latitude}&lon=${myLoc.longitude}" else ""
+        val url = "https://nominatim.openstreetmap.org/search?q=$query&format=json&addressdetails=1&limit=20&accept-language=el$proximity"
 
         val client = OkHttpClient()
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", "GPSTrackerApp")
-            .build()
+        val request = Request.Builder().url(url).header("User-Agent", "GPSTrackerApp").build()
 
         client.newCall(request).enqueue(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: IOException) {
@@ -979,49 +978,82 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                val jsonData = response.body?.string()
-                if (jsonData != null) {
-                    try {
-                        val jsonArray = JSONArray(jsonData)
-                        val results = mutableListOf<SearchResult>()
+                val jsonData = response.body?.string() ?: return
+                Log.d("SEARCH_DEBUG", "JSON Received: $jsonData") // LOG 1: Τι φέρνει το API
 
-                        for (i in 0 until jsonArray.length()) {
-                            val obj = jsonArray.getJSONObject(i)
-                            val addr = obj.optJSONObject("address") ?: JSONObject()
+                try {
+                    val jsonArray = JSONArray(jsonData)
+                    val resultsList = mutableListOf<SearchResult>()
 
-                            // Παίρνουμε περισσότερα στοιχεία για να ξέρουμε πού βρισκόμαστε
-                            val road = addr.optString("road", addr.optString("pedestrian", ""))
-                            val houseNumber = addr.optString("house_number", "")
-                            val suburb = addr.optString("suburb", addr.optString("neighbourhood", ""))
-                            val city = addr.optString("city", addr.optString("town", addr.optString("village", addr.optString("municipality", ""))))
+                    val myLoc = locationOverlay.myLocation
+                    val refLat = myLoc?.latitude ?: map.mapCenter.latitude
+                    val refLon = myLoc?.longitude ?: map.mapCenter.longitude
 
-                            // Φτιάχνουμε μια πιο πλήρη περιγραφή: π.χ. "Ακροπόλεως 21, Άνω Πόλη, Θεσσαλονίκη"
-                            val fullDesc = buildString {
-                                if (road.isNotEmpty()) append(road)
-                                if (houseNumber.isNotEmpty()) append(" $houseNumber")
-                                if (suburb.isNotEmpty()) append(", $suburb")
-                                if (city.isNotEmpty()) append(", $city")
-                                if (isEmpty()) append(obj.getString("display_name").take(50) + "...")
+                    Log.d("SEARCH_DEBUG", "Reference Point: Lat $refLat, Lon $refLon") // LOG 2: Πού νομίζει ότι είσαι
+
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val addr = obj.optJSONObject("address") ?: JSONObject()
+
+                        val resLat = obj.getDouble("lat")
+                        val resLon = obj.getDouble("lon")
+
+                        // --- ΔΙΟΡΘΩΣΗ ΟΝΟΜΑΤΟΣ ---
+                        val road = addr.optString("road", addr.optString("pedestrian", ""))
+                        val suburb = addr.optString("suburb", addr.optString("neighbourhood", ""))
+                        val city = addr.optString("city", addr.optString("town", addr.optString("municipality", "")))
+
+                        val displayTitle = buildString {
+                            if (road.isNotEmpty()) append(road)
+                            if (suburb.isNotEmpty()) {
+                                if (isNotEmpty()) append(", ")
+                                append(suburb)
                             }
-
-                            results.add(SearchResult(fullDesc, obj.getDouble("lat"), obj.getDouble("lon")))
+                            if (city.isNotEmpty()) {
+                                if (isNotEmpty()) append(", ")
+                                append(city)
+                            }
+                            // Αν όλα τα παραπάνω λείπουν, πάρε το πρώτο κομμάτι του display_name
+                            if (isEmpty()) append(obj.optString("display_name", "").split(",")[0])
                         }
 
-                        runOnUiThread {
-                            if (results.isEmpty()) showCustomToast("Δεν βρέθηκαν αποτελέσματα")
-                            else showNominatimSelectionDialog(results)
-                        }
-                    } catch (e: Exception) {
-                        runOnUiThread { showCustomToast("Σφάλμα στην ανάλυση") }
+                        // --- ΔΙΟΡΘΩΣΗ ΑΠΟΣΤΑΣΗΣ ---
+                        val distResult = FloatArray(1)
+                        android.location.Location.distanceBetween(refLat, refLon, resLat, resLon, distResult)
+                        val dist = distResult[0]
+
+                        Log.d("SEARCH_DEBUG", "Result: $displayTitle | Dist: $dist meters | Lat: $resLat, Lon: $resLon")
+
+                        resultsList.add(SearchResult(displayTitle, resLat, resLon, dist))
                     }
+
+                    resultsList.sortBy { it.distance }
+
+                    runOnUiThread {
+                        if (resultsList.isEmpty()) showCustomToast("Δεν βρέθηκαν αποτελέσματα")
+                        else showNominatimSelectionDialog(resultsList)
+                    }
+                } catch (e: Exception) {
+                    Log.e("SEARCH_DEBUG", "Error: ${e.message}", e)
+                    runOnUiThread { showCustomToast("Σφάλμα στην ανάλυση") }
                 }
             }
         })
     }
 
     private fun showNominatimSelectionDialog(results: List<SearchResult>) {
-        val displayNames = results.map { it.shortName }.toTypedArray()
+        // 1. Δημιουργία της λίστας κειμένων με την απόσταση
+        val displayNames = results.map { result ->
+            if (result.distance != Float.MAX_VALUE) {
+                val kms = result.distance / 1000 // Μετατροπή μέτρων σε χιλιόμετρα
+                // Εμφάνιση π.χ.: "Ακροπόλεως, Θεσσαλονίκη (2.4 km)"
+                "${result.shortName} (${String.format("%.1f", kms)} km)"
+            } else {
+                result.shortName // Αν δεν υπάρχει στίγμα GPS, δείξε μόνο το όνομα
+            }
+        }.toTypedArray()
 
+        // 2. Δημιουργία του ListView (όπως το είχες)
         val listView = ListView(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_list_item_1, displayNames)
             divider = ColorDrawable(Color.RED)
@@ -1034,9 +1066,10 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Άκυρο", null)
             .create()
 
+        // 3. Click Listener
         listView.setOnItemClickListener { _, _, which, _ ->
             val selected = results[which]
-            // Εδώ το όνομα πρέπει να συμπίπτει με τη συνάρτηση παρακάτω
+            // Στέλνουμε το shortName χωρίς τα χιλιόμετρα για να μη γεμίζει ο χάρτης κείμενο
             zoomToLocation(selected.lat, selected.lon, selected.shortName)
             dialog.dismiss()
         }
@@ -1059,7 +1092,7 @@ class MainActivity : AppCompatActivity() {
             position = geoPoint
             title = name
             // Χρησιμοποίησε ένα εικονίδιο που έχεις, π.χ. το baseline_push_pin_24
-            icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.baseline_push_pin_24)
+            icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.baseline_gps_fixed_24)
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
         }
 
