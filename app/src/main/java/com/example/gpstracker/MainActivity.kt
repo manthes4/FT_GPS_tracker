@@ -66,6 +66,7 @@ import org.osmdroid.bonuspack.routing.RoadManager
 import org.osmdroid.bonuspack.routing.Road
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.views.overlay.Overlay
 
 private var currentSearchMarker: Marker? = null
 
@@ -144,21 +145,35 @@ class MainActivity : AppCompatActivity() {
         map.overlays.add(rotationGestureOverlay)
 
         // Αρχικοποίηση του Helper
+// 1. Αρχικοποίηση του Helper
         routePlanner = RoutePlannerHelper(this, map)
 
-        val eventsReceiver = object : MapEventsReceiver {
-            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
-                return false // Δεν κάνουμε κάτι στο απλό κλικ
-            }
+        // 2. Σύνδεση του κουμπιού Clear Map (Σωστά το έβαλες, απλά σιγουρέψου ότι η συνάρτηση είναι η "σαρωτική")
+        val btnClearMap = findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.button_clear_map)
+        btnClearMap.setOnClickListener {
+            clearMapRouting() // Αυτή που σβήνει με Iterator
+        }
+
+        // 3. ΕΝΑΣ και μοναδικός Listener για το Long Click
+        val mEventsReceiver = object : MapEventsReceiver {
+            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean = false
 
             override fun longPressHelper(p: GeoPoint?): Boolean {
-                p?.let { handleLongClick(it) }
+                if (p == null) return false
+
+                if (isPlanningEnabled) {
+                    val totalDistance = routePlanner.addPoint(p)
+                    showCustomToast("Total distance: ${String.format("%.3f", totalDistance)} km")
+                } else {
+                    // Αν δεν είναι planning, κάνει την απλή δρομολόγηση που είχες
+                    handleLongClick(p)
+                }
                 return true
             }
         }
 
-        val eventsOverlay = MapEventsOverlay(eventsReceiver)
-        map.overlays.add(0, eventsOverlay) // Το βάζουμε στη θέση 0 για να πιάνει τα κλικ
+        // Προσθήκη του overlay στη θέση 0 (για να πιάνει πάντα τα κλικ)
+        map.overlays.add(0, MapEventsOverlay(mEventsReceiver))
 
 // Ένα κουμπί (π.χ. ImageButton) για ενεργοποίηση/απενεργοποίηση του Planning
         val btnPlan = findViewById<FloatingActionButton>(R.id.button_plan_mode)
@@ -210,21 +225,6 @@ class MainActivity : AppCompatActivity() {
 
             showCustomToast("Planning cleared & Mode OFF")
         }
-
-// Ο Listener για το Long Click
-        val mEventsReceiver = object : org.osmdroid.events.MapEventsReceiver {
-            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean = false
-
-            override fun longPressHelper(p: GeoPoint?): Boolean {
-                if (isPlanningEnabled && p != null) {
-                    val totalDistance = routePlanner.addPoint(p)
-                    showCustomToast("Total distance: ${String.format("%.3f", totalDistance)} km")
-                    return true
-                }
-                return false
-            }
-        }
-        map.overlays.add(org.osmdroid.views.overlay.MapEventsOverlay(mEventsReceiver))
 
         // Δημιουργία του MyLocationNewOverlay
         locationOverlay = MyLocationNewOverlay(map).apply {
@@ -1291,5 +1291,41 @@ class MainActivity : AppCompatActivity() {
         startMarker = null
         endMarker = null
         map.invalidate()
+    }
+
+    private fun clearMapRouting() {
+        // 1. Μηδενισμός βασικών μεταβλητών
+        startPoint = null
+        endPoint = null
+        routePlanner?.clearAll()
+
+        // 2. ΚΛΕΙΣΙΜΟ ΤΩΝ INFOWINDOWS (Αυτό εξαφανίζει την καρτέλα)
+        startMarker?.closeInfoWindow()
+        endMarker?.closeInfoWindow()
+
+        // 3. Δημιουργία λίστας για τα στοιχεία που θα διαγραφούν
+        val toRemove = mutableListOf<Overlay>()
+
+        // 4. Εντοπισμός των στοιχείων (Markers και Polylines)
+        for (overlay in map.overlays) {
+            if (overlay is Marker) {
+                overlay.closeInfoWindow() // Σιγουριά: κλείσιμο όλων των παραθύρων
+                toRemove.add(overlay)
+            } else if (overlay is Polyline) {
+                toRemove.add(overlay)
+            }
+        }
+
+        // 5. Αφαίρεση από τον χάρτη
+        map.overlays.removeAll(toRemove)
+
+        // 6. Καθαρισμός αναφορών
+        roadOverlay = null
+        startMarker = null
+        endMarker = null
+
+        // 7. Ανανέωση χάρτη
+        map.invalidate()
+        showCustomToast("Ο χάρτης καθαρίστηκε")
     }
 }
