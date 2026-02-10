@@ -970,42 +970,85 @@ class MainActivity : AppCompatActivity() {
     )
 
     private fun performNominatimSearch(query: String) {
-
-        val clean = query
+        // 1. Καθαρίζουμε το κείμενο αλλά ΚΡΑΤΑΜΕ όλες τις λέξεις
+        val cleanQuery = query
             .lowercase()
             .replace(",", " ")
             .replace("\\s+".toRegex(), " ")
             .trim()
 
-        if (clean.isEmpty()) return
+        if (cleanQuery.isEmpty()) return
 
-        val tokens = clean.split(" ")
-
-        // ξαναφτιάχνουμε query ώστε να δουλεύει ΟΠΟΙΑΔΗΠΟΤΕ σειρά λέξεων
-        val normalizedQuery = tokens.joinToString(" ")
-
-        val encodedQuery = URLEncoder.encode(normalizedQuery, "UTF-8")
+        // 2. Encoding σε ΟΛΟ το query
+        val encodedQuery = URLEncoder.encode(cleanQuery, "UTF-8")
 
         val myLoc = locationOverlay.myLocation
-        val refLat = myLoc?.latitude ?: map.mapCenter.latitude
-        val refLon = myLoc?.longitude ?: map.mapCenter.longitude
+        var refLat = myLoc?.latitude ?: map.mapCenter.latitude
+        var refLon = myLoc?.longitude ?: map.mapCenter.longitude
 
-        // δυναμικό viewbox γύρω από χρήστη / χάρτη
-        val delta = 0.35
-        val viewbox =
-            "${refLon - delta},${refLat + delta}," +
-                    "${refLon + delta},${refLat - delta}"
+        // 3. Έξυπνη επιλογή viewbox βάσει query
+        val queryWords = cleanQuery.split(" ").filter { it.length > 2 }
+        val isSpecificCitySearch = queryWords.any { word ->
+            word.contains("θεσσαλονικη") || word.contains("αθηνα") ||
+                    word.contains("πατρα") || word.contains("ηρακλειο") ||
+                    word.contains("βολος") || word.contains("λαρισα") ||
+                    word.contains("ιαννινα") || word.contains("καβαλα") ||
+                    word.contains("ρεθυμνο") || word.contains("χανια") ||
+                    word.contains("κομοτηνη") || word.contains("ξανθη") ||
+                    word.contains("δρυμα") || word.contains("σερρε") ||
+                    word.contains("καρδιτσα") || word.contains("τρίκαλα") ||
+                    word.contains("κορινθο") || word.contains("πύργο") ||
+                    word.contains("άμφισσα") || word.contains("λαμι")
+        }
 
-        val url =
-            "https://nominatim.openstreetmap.org/search" +
-                    "?q=$encodedQuery" +
-                    "&format=json" +
-                    "&addressdetails=1" +
-                    "&limit=50" +
-                    "&accept-language=el" +
-                    "&countrycodes=gr" +
-                    "&viewbox=$viewbox" +
-                    "&bounded=0"
+        // 4. Προσαρμοσμένο viewbox για συγκεκριμένες πόλεις
+        val (centerLat, centerLon) = if (isSpecificCitySearch) {
+            when {
+                cleanQuery.contains("θεσσαλονικη") -> Pair(40.6401, 22.9444)
+                cleanQuery.contains("αθηνα") -> Pair(37.9838, 23.7275)
+                cleanQuery.contains("πατρα") -> Pair(38.2466, 21.7346)
+                cleanQuery.contains("ηρακλειο") -> Pair(35.3387, 25.1442)
+                cleanQuery.contains("βολο") -> Pair(39.3622, 22.9422)
+                cleanQuery.contains("λαρισα") -> Pair(39.6390, 22.4191)
+                cleanQuery.contains("ιαννινα") -> Pair(39.6650, 20.8537)
+                cleanQuery.contains("καβαλα") -> Pair(40.9399, 24.4018)
+                cleanQuery.contains("ρεθυμνο") -> Pair(35.3650, 24.4823)
+                cleanQuery.contains("χανια") -> Pair(35.5138, 24.0180)
+                cleanQuery.contains("κομοτηνη") -> Pair(41.1193, 25.4053)
+                cleanQuery.contains("ξανθη") -> Pair(41.1413, 24.8836)
+                cleanQuery.contains("δρυμα") -> Pair(41.1522, 24.1472)
+                cleanQuery.contains("σερρε") -> Pair(41.0931, 23.5624)
+                cleanQuery.contains("καρδιτσα") -> Pair(39.3649, 21.9219)
+                cleanQuery.contains("τρίκαλα") -> Pair(39.5550, 21.7686)
+                cleanQuery.contains("κορινθο") -> Pair(37.9375, 22.9322)
+                cleanQuery.contains("πύργο") -> Pair(37.6751, 21.4410)
+                cleanQuery.contains("άμφισσα") -> Pair(38.5253, 22.3731)
+                cleanQuery.contains("λαμι") -> Pair(38.9000, 22.4333)
+                else -> Pair(refLat, refLon)
+            }
+        } else {
+            Pair(refLat, refLon)
+        }
+
+        // 5. Προσαρμοσμένο μέγεθος viewbox
+        val delta = if (isSpecificCitySearch) {
+            0.15  // Μεγαλύτερη περιοχή για πόλεις
+        } else {
+            0.1   // Κανονική περιοχή
+        }
+
+        val viewbox = "${centerLon - delta},${centerLat + delta},${centerLon + delta},${centerLat - delta}"
+
+        // 6. Χρησιμοποιούμε bounded=0 για πιο ευέλικτη αναζήτηση
+        val url = "https://nominatim.openstreetmap.org/search" +
+                "?q=$encodedQuery" +
+                "&format=json" +
+                "&addressdetails=1" +
+                "&limit=50" +
+                "&accept-language=el" +
+                "&countrycodes=gr" +
+                "&viewbox=$viewbox" +
+                "&bounded=0" // Αλλαγή σε 0 για ευελιξία
 
         val client = OkHttpClient()
         val request = Request.Builder()
@@ -1038,6 +1081,145 @@ class MainActivity : AppCompatActivity() {
                                 addr.optString("municipality", "")
                             )
                         )
+                        val state = addr.optString("state", "")
+                        val county = addr.optString("county", "")
+
+                        val displayTitle = buildString {
+                            if (road.isNotEmpty()) append(road)
+                            if (houseNumber.isNotEmpty()) append(" $houseNumber")
+                            if (suburb.isNotEmpty()) append(", $suburb")
+                            if (city.isNotEmpty()) append(", $city")
+                            if (state.isNotEmpty() && !contains(state)) append(", $state")
+                            if (county.isNotEmpty() && !contains(county)) append(", $county")
+                            if (length < 5) append(obj.optString("display_name", ""))
+                        }
+
+                        val resLat = obj.getDouble("lat")
+                        val resLon = obj.getDouble("lon")
+
+                        val distResult = FloatArray(1)
+                        android.location.Location.distanceBetween(
+                            centerLat, centerLon, resLat, resLon, distResult
+                        )
+
+                        resultsList.add(
+                            SearchResult(displayTitle, resLat, resLon, distResult[0])
+                        )
+                    }
+
+                    // 7. Κατάταξη αποτελεσμάτων με έξυπνο ranking
+                    val rankedResults = rankResults(resultsList, cleanQuery, centerLat, centerLon)
+
+                    runOnUiThread {
+                        if (rankedResults.isEmpty()) {
+                            // Επιπλέον απόπειρα με διαφορετική στρατηγική αν δεν βρεθούν αποτελέσματα
+                            if (isSpecificCitySearch) {
+                                performFallbackSearch(cleanQuery, encodedQuery)
+                            } else {
+                                showCustomToast("Δεν βρέθηκαν αποτελέσματα")
+                            }
+                        } else {
+                            showNominatimSelectionDialog(rankedResults)
+                        }
+                    }
+
+                } catch (e: Exception) {
+                    Log.e("SEARCH_DEBUG", "Error: ${e.message}")
+                    runOnUiThread {
+                        showCustomToast("Σφάλμα κατά την επεξεργασία των αποτελεσμάτων")
+                    }
+                }
+            }
+
+            override fun onFailure(call: okhttp3.Call, e: IOException) {
+                runOnUiThread {
+                    showCustomToast("Αποτυχία σύνδεσης στο διακομιστή")
+                }
+            }
+        })
+    }
+
+    private fun rankResults(
+        results: List<SearchResult>,
+        query: String,
+        refLat: Double,
+        refLon: Double
+    ): List<SearchResult> {
+        val queryWords = query.split(" ").filter { it.length > 2 }
+        val containsCity = queryWords.any { word ->
+            word.contains("θεσσαλονικη") || word.contains("αθηνα") ||
+                    word.contains("πατρα") || word.contains("ηρακλειο") ||
+                    word.contains("βολος") || word.contains("λαρισα")
+        }
+
+        return results.sortedByDescending { result ->
+            var score = 0.0
+
+            // 1. Προτεραιότητα σε κοντινά αποτελέσματα (βάση απόστασης)
+            val distanceKm = result.distance / 1000
+            score += 100.0 / (1.0 + distanceKm)
+
+            // 2. Προτεραιότητα σε αποτελέσματα που ταιριάζουν με τις λέξεις του query
+            val shortNameLower = result.shortName.lowercase()
+            queryWords.forEach { word ->
+                if (shortNameLower.contains(word)) {
+                    score += 30.0
+                }
+            }
+
+            // 3. Ειδική προτεραιότητα για συγκεκριμένες πόλεις
+            if (containsCity) {
+                queryWords.forEach { word ->
+                    if (word.contains("θεσσαλονικη") && shortNameLower.contains("θεσσαλονικη")) {
+                        score += 50.0
+                    } else if (word.contains("αθηνα") && shortNameLower.contains("αθηνα")) {
+                        score += 50.0
+                    }
+                    // Προσθέστε άλλες πόλεις εδώ αν χρειαστεί
+                }
+            }
+
+            // 4. Προτεραιότητα σε οδούς/διευθύνσεις έναντι γενικών περιοχών
+            if (result.shortName.matches(Regex(".*[Α-Ωα-ω] [0-9]+.*"))) {
+                score += 20.0  // Είναι διεύθυνση με αριθμό
+            }
+
+            score
+        }
+    }
+
+    private fun performFallbackSearch(cleanQuery: String, encodedQuery: String) {
+        // Εφεδρική αναζήτηση χωρίς viewbox για ευρύτερη κάλυψη
+        val fallbackUrl = "https://nominatim.openstreetmap.org/search" +
+                "?q=$encodedQuery" +
+                "&format=json" +
+                "&addressdetails=1" +
+                "&limit=30" +
+                "&accept-language=el" +
+                "&countrycodes=gr"
+
+        val client = OkHttpClient()
+        val request = Request.Builder()
+            .url(fallbackUrl)
+            .header("User-Agent", "GPSTrackerApp")
+            .build()
+
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                val jsonData = response.body?.string() ?: return
+
+                try {
+                    val jsonArray = JSONArray(jsonData)
+                    val resultsList = mutableListOf<SearchResult>()
+
+                    for (i in 0 until jsonArray.length()) {
+                        val obj = jsonArray.getJSONObject(i)
+                        val addr = obj.optJSONObject("address") ?: JSONObject()
+
+                        val road = addr.optString("road", "")
+                        val houseNumber = addr.optString("house_number", "")
+                        val suburb = addr.optString("suburb", addr.optString("neighbourhood", ""))
+                        val city = addr.optString("city", addr.optString("town", addr.optString("municipality", "")))
 
                         val displayTitle = buildString {
                             if (road.isNotEmpty()) append(road)
@@ -1050,50 +1232,47 @@ class MainActivity : AppCompatActivity() {
                         val resLat = obj.getDouble("lat")
                         val resLon = obj.getDouble("lon")
 
-                        val distResult = FloatArray(1)
-                        android.location.Location.distanceBetween(
-                            refLat, refLon, resLat, resLon, distResult
-                        )
-
                         resultsList.add(
-                            SearchResult(displayTitle, resLat, resLon, distResult[0])
+                            SearchResult(displayTitle, resLat, resLon, Float.MAX_VALUE)
                         )
                     }
 
                     runOnUiThread {
-                        if (resultsList.isEmpty())
+                        if (resultsList.isEmpty()) {
                             showCustomToast("Δεν βρέθηκαν αποτελέσματα")
-                        else
+                        } else {
                             showNominatimSelectionDialog(resultsList)
+                        }
                     }
 
                 } catch (e: Exception) {
-                    Log.e("SEARCH_DEBUG", "Error: ${e.message}")
+                    Log.e("SEARCH_DEBUG", "Fallback error: ${e.message}")
+                    runOnUiThread {
+                        showCustomToast("Δεν βρέθηκαν αποτελέσματα")
+                    }
                 }
             }
 
             override fun onFailure(call: okhttp3.Call, e: IOException) {
                 runOnUiThread {
-                    showCustomToast("Αποτυχία σύνδεσης στο διακομιστή")
+                    showCustomToast("Αποτυχία σύνδεσης")
                 }
             }
         })
     }
 
-
     private fun showNominatimSelectionDialog(results: List<SearchResult>) {
         // 1. Δημιουργία της λίστας κειμένων με την απόσταση
         val displayNames = results.map { result ->
             if (result.distance != Float.MAX_VALUE) {
-                val kms = result.distance / 1000 // Μετατροπή μέτρων σε χιλιόμετρα
-                // Εμφάνιση π.χ.: "Ακροπόλεως, Θεσσαλονίκη (2.4 km)"
+                val kms = result.distance / 1000
                 "${result.shortName} (${String.format("%.1f", kms)} km)"
             } else {
-                result.shortName // Αν δεν υπάρχει στίγμα GPS, δείξε μόνο το όνομα
+                result.shortName
             }
         }.toTypedArray()
 
-        // 2. Δημιουργία του ListView (όπως το είχες)
+        // 2. Δημιουργία του ListView
         val listView = ListView(this).apply {
             adapter =
                 ArrayAdapter(this@MainActivity, android.R.layout.simple_list_item_1, displayNames)
@@ -1113,22 +1292,14 @@ class MainActivity : AppCompatActivity() {
         listView.setOnItemClickListener { _, _, which, _ ->
             val selected = results[which]
 
-            // 1. Πάρε το κέντρο του χάρτη ΤΩΡΑ (πριν το zoom) ως εναλλακτική
             val currentMapCenter = GeoPoint(map.mapCenter.latitude, map.mapCenter.longitude)
-
-            // 2. Το σημείο προορισμού
             val endGeoPoint = GeoPoint(selected.lat, selected.lon)
-
-            // 3. Η αφετηρία: Προσπάθησε για GPS, αλλιώς χρησιμοποίησε το τρέχον κέντρο
             val startGeoPoint = locationOverlay.myLocation ?: currentMapCenter
 
             Log.d("ROUTING_DEBUG", "Εκκίνηση διαδρομής από: ${startGeoPoint.latitude}, ${startGeoPoint.longitude}")
             Log.d("ROUTING_DEBUG", "Προς προορισμό: ${endGeoPoint.latitude}, ${endGeoPoint.longitude}")
 
-            // 4. Κάλεσε τη διαδρομή
             calculateRoute(startGeoPoint, endGeoPoint)
-
-            // 5. Τώρα κάνε το zoom στον προορισμό
             zoomToLocation(selected.lat, selected.lon, selected.shortName)
 
             dialog.dismiss()
