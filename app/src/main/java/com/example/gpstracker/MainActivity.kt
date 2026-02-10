@@ -67,6 +67,7 @@ import org.osmdroid.bonuspack.routing.Road
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Overlay
+import java.net.URLEncoder
 
 private var currentSearchMarker: Marker? = null
 
@@ -969,11 +970,42 @@ class MainActivity : AppCompatActivity() {
     )
 
     private fun performNominatimSearch(query: String) {
-        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
 
-        // Χρησιμοποιούμε limit=50 για να έχουμε "πράμα" να διαλέξουμε
-        // countrycodes=gr για να μην μας φέρνει δρόμους από τη Βουλγαρία ή την Ιταλία
-        val url = "https://nominatim.openstreetmap.org/search?q=$encodedQuery&format=json&addressdetails=1&limit=50&accept-language=el&countrycodes=gr"
+        val clean = query
+            .lowercase()
+            .replace(",", " ")
+            .replace("\\s+".toRegex(), " ")
+            .trim()
+
+        if (clean.isEmpty()) return
+
+        val tokens = clean.split(" ")
+
+        // ξαναφτιάχνουμε query ώστε να δουλεύει ΟΠΟΙΑΔΗΠΟΤΕ σειρά λέξεων
+        val normalizedQuery = tokens.joinToString(" ")
+
+        val encodedQuery = URLEncoder.encode(normalizedQuery, "UTF-8")
+
+        val myLoc = locationOverlay.myLocation
+        val refLat = myLoc?.latitude ?: map.mapCenter.latitude
+        val refLon = myLoc?.longitude ?: map.mapCenter.longitude
+
+        // δυναμικό viewbox γύρω από χρήστη / χάρτη
+        val delta = 0.35
+        val viewbox =
+            "${refLon - delta},${refLat + delta}," +
+                    "${refLon + delta},${refLat - delta}"
+
+        val url =
+            "https://nominatim.openstreetmap.org/search" +
+                    "?q=$encodedQuery" +
+                    "&format=json" +
+                    "&addressdetails=1" +
+                    "&limit=50" +
+                    "&accept-language=el" +
+                    "&countrycodes=gr" +
+                    "&viewbox=$viewbox" +
+                    "&bounded=0"
 
         val client = OkHttpClient()
         val request = Request.Builder()
@@ -982,6 +1014,7 @@ class MainActivity : AppCompatActivity() {
             .build()
 
         client.newCall(request).enqueue(object : okhttp3.Callback {
+
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                 val jsonData = response.body?.string() ?: return
 
@@ -989,28 +1022,28 @@ class MainActivity : AppCompatActivity() {
                     val jsonArray = JSONArray(jsonData)
                     val resultsList = mutableListOf<SearchResult>()
 
-                    val myLoc = locationOverlay.myLocation
-                    val refLat = myLoc?.latitude ?: map.mapCenter.latitude
-                    val refLon = myLoc?.longitude ?: map.mapCenter.longitude
-
                     for (i in 0 until jsonArray.length()) {
                         val obj = jsonArray.getJSONObject(i)
                         val addr = obj.optJSONObject("address") ?: JSONObject()
 
-                        // Παίρνουμε όσο το δυνατόν περισσότερες λεπτομέρειες
                         val road = addr.optString("road", "")
                         val houseNumber = addr.optString("house_number", "")
-                        val suburb = addr.optString("suburb", addr.optString("neighbourhood", ""))
-                        val city = addr.optString("city", addr.optString("town", ""))
+                        val suburb = addr.optString(
+                            "suburb",
+                            addr.optString("neighbourhood", "")
+                        )
+                        val city = addr.optString(
+                            "city",
+                            addr.optString("town",
+                                addr.optString("municipality", "")
+                            )
+                        )
 
-                        // Φτιάχνουμε ένα πολύ αναλυτικό όνομα για το Dialog
                         val displayTitle = buildString {
                             if (road.isNotEmpty()) append(road)
                             if (houseNumber.isNotEmpty()) append(" $houseNumber")
                             if (suburb.isNotEmpty()) append(", $suburb")
                             if (city.isNotEmpty()) append(", $city")
-
-                            // Αν το φιλτραρισμένο όνομα βγήκε μικρό, βάλε το display_name του OSM
                             if (length < 5) append(obj.optString("display_name", ""))
                         }
 
@@ -1018,27 +1051,35 @@ class MainActivity : AppCompatActivity() {
                         val resLon = obj.getDouble("lon")
 
                         val distResult = FloatArray(1)
-                        android.location.Location.distanceBetween(refLat, refLon, resLat, resLon, distResult)
+                        android.location.Location.distanceBetween(
+                            refLat, refLon, resLat, resLon, distResult
+                        )
 
-                        resultsList.add(SearchResult(displayTitle, resLat, resLon, distResult[0]))
+                        resultsList.add(
+                            SearchResult(displayTitle, resLat, resLon, distResult[0])
+                        )
                     }
-
-                    // ΜΗΝ ΚΑΝΕΙΣ SORT. Άσε την ιεραρχία του Nominatim.
-                    // Συνήθως ο κεντρικός δρόμος έχει υψηλότερο score και έρχεται πρώτος.
 
                     runOnUiThread {
-                        if (resultsList.isEmpty()) showCustomToast("Δεν βρέθηκαν αποτελέσματα")
-                        else showNominatimSelectionDialog(resultsList)
+                        if (resultsList.isEmpty())
+                            showCustomToast("Δεν βρέθηκαν αποτελέσματα")
+                        else
+                            showNominatimSelectionDialog(resultsList)
                     }
+
                 } catch (e: Exception) {
                     Log.e("SEARCH_DEBUG", "Error: ${e.message}")
                 }
             }
+
             override fun onFailure(call: okhttp3.Call, e: IOException) {
-                runOnUiThread { showCustomToast("Αποτυχία σύνδεσης στο διακομιστή") }
+                runOnUiThread {
+                    showCustomToast("Αποτυχία σύνδεσης στο διακομιστή")
+                }
             }
         })
     }
+
 
     private fun showNominatimSelectionDialog(results: List<SearchResult>) {
         // 1. Δημιουργία της λίστας κειμένων με την απόσταση
