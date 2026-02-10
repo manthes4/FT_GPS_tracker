@@ -1043,7 +1043,10 @@ class MainActivity : AppCompatActivity() {
                             if (road.isNotEmpty()) append(road)
                             if (houseNumber.isNotEmpty()) append(" $houseNumber")
                             if (suburb.isNotEmpty()) append(", $suburb")
-                            if (city.isNotEmpty()) append(", $city")
+                            if (city.isNotEmpty()) {
+                                val cleanCity = city.replace("Δημοτική Ενότητα", "").trim()
+                                append(", $cleanCity")
+                            }
                             if (length < 5) append(obj.optString("display_name", ""))
                         }
 
@@ -1226,12 +1229,18 @@ class MainActivity : AppCompatActivity() {
                         }
 
                         // 4. Ενημέρωση UI
-                        val info = "Περπάτημα: $timeText\nΑπόσταση: ${String.format("%.2f", distanceKm)} km"
-                        showCustomToast(info)
+// Κρατάμε την πληροφορία πιο σύντομη
+                        val info = "🚶 $timeText | 📍 ${String.format("%.2f", distanceKm)} km"
 
-                        // Ενημέρωση Marker αν υπάρχει
-                        endMarker?.snippet = info
-                        endMarker?.showInfoWindow()
+// Επιλέγουμε τον ενεργό marker
+                        val activeMarker = currentSearchMarker ?: endMarker
+
+                        activeMarker?.let { marker ->
+                            marker.snippet = info // Εδώ μπαίνει η μικρή πληροφορία
+                            marker.showInfoWindow()
+                        }
+
+                        // showCustomToast(info) // <--- Η γραμμή αυτή αφαιρέθηκε ή μπήκε σε σχόλιο
 
                         // 5. Εστίαση και Ανανέωση
                         map.zoomToBoundingBox(road.mBoundingBox.increaseByScale(1.2f), true)
