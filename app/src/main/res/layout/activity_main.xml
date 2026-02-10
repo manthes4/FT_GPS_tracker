@@ -50,7 +50,7 @@
         android:layout_height="65dp"
         android:orientation="horizontal"
         android:background="#1B1D2D"
-        android:weightSum="4"
+        android:weightSum="5"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
@@ -108,6 +108,32 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/button_view_satellites"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/baseline_satellite_alt_24"
+                app:tint="#0091EA" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Satellites"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/button_view_stats"
             android:layout_width="0dp"
             android:layout_height="match_parent"
@@ -134,7 +160,7 @@
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/button_view_satellites"
+            android:id="@+id/fab_load_kml"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
@@ -147,14 +173,14 @@
             <ImageView
                 android:layout_width="30dp"
                 android:layout_height="30dp"
-                android:src="@drawable/baseline_satellite_alt_24"
-                app:tint="#0091EA" />
+                android:src="@drawable/restart_alt_24px"
+                app:tint="#FF6D00" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
-                android:text="Satellites"
+                android:text="Load KML"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp" />
         </LinearLayout>
@@ -162,39 +188,18 @@
     </LinearLayout>
 
     <!-- Floating Action Button for loading KML -->
-
-    <!-- New Floating Action Button for toggling POI visibility -->
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/fab_load_kml"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_marginTop="15dp"
-        android:layout_marginEnd="8dp"
-        android:layout_gravity="top|end"
-        android:backgroundTint="#FF6D00"
-        android:contentDescription="@string/load_kml_desc"
-        android:scaleType="center"
-        android:src="@drawable/load_kml"
-        app:fabSize="mini"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="parent"
-        app:maxImageSize="28dp" />
-
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fab_toggle_poi"
         android:layout_width="40dp"
         android:layout_height="40dp"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="10dp"
         android:layout_marginEnd="8dp"
-        android:layout_gravity="top|end"
         android:backgroundTint="#FF6D00"
-        android:scaleType="center"
+        android:src="@drawable/ic_toggle_poi"
         app:fabSize="mini"
         app:maxImageSize="28dp"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/fab_load_kml"
-        android:src="@drawable/ic_toggle_poi"
-        tools:ignore="MissingConstraints" />
+        app:layout_constraintTop_toTopOf="parent" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fab_search"
@@ -202,47 +207,38 @@
         android:layout_height="40dp"
         android:layout_marginTop="12dp"
         android:layout_marginEnd="8dp"
-        android:layout_gravity="top|end"
         android:backgroundTint="#FF6D00"
-        android:scaleType="center"
         android:src="@drawable/search_24"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/fab_toggle_poi"
-        app:maxImageSize="28dp"
         app:fabSize="mini"
-        tools:ignore="MissingConstraints" />
+        app:maxImageSize="28dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/fab_toggle_poi" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/button_plan_mode"
         android:layout_width="40dp"
         android:layout_height="40dp"
-        android:layout_gravity="top|end"
         android:layout_marginTop="52dp"
         android:layout_marginEnd="8dp"
         android:backgroundTint="#FF6D00"
-        android:contentDescription="Plan Route"
-        android:scaleType="center"
+        android:src="@drawable/direction"
         app:fabSize="mini"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/fab_search"
         app:maxImageSize="28dp"
-        app:srcCompat="@drawable/direction" />
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/fab_search" />
 
-        <com.google.android.material.floatingactionbutton.FloatingActionButton
-            android:id="@+id/button_undo_plan"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginTop="12dp"
-            android:layout_marginEnd="8dp"
-            android:layout_gravity="top|end"
-            android:backgroundTint="#FF6D00"
-            android:scaleType="center"
-            app:fabSize="mini"
-            app:maxImageSize="28dp"
-            app:layout_constraintEnd_toEndOf="parent"
-            android:contentDescription="Undo Last Point"
-            app:srcCompat="@drawable/undo"
-            app:layout_constraintTop_toBottomOf="@+id/button_plan_mode"/>
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/button_undo_plan"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="8dp"
+        android:backgroundTint="#FF6D00"
+        android:src="@drawable/undo"
+        app:fabSize="mini"
+        app:maxImageSize="28dp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/button_plan_mode"/>
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/button_clear_map"
@@ -250,15 +246,12 @@
         android:layout_height="40dp"
         android:layout_marginTop="12dp"
         android:layout_marginEnd="8dp"
-        android:contentDescription="Καθαρισμός Χάρτη"
-        android:scaleType="center"
+        android:backgroundTint="#FF6D00"
+        android:src="@drawable/baseline_delete_24"
         app:fabSize="mini"
         app:maxImageSize="28dp"
-        android:src="@drawable/baseline_delete_24"
-        app:backgroundTint="#FF6D00"
-    app:layout_constraintTop_toBottomOf="@+id/button_undo_plan"
-    app:layout_constraintEnd_toEndOf="parent"
-    app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Full" />
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/button_undo_plan" />
 
 
 </androidx.constraintlayout.widget.ConstraintLayout>

@@ -84,7 +84,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var viewStatsButton: View
     private lateinit var viewSatellitesButton: View
     private lateinit var statsDisplay: TextView
-    private lateinit var fabLoadKml: FloatingActionButton
+    private lateinit var fabLoadKml: View
     private lateinit var fabSearch: FloatingActionButton
     private lateinit var fabTogglePOI: FloatingActionButton  // New FAB for POI toggle
     private var roadOverlay: Polyline? = null // Μεταβλητή για να διαχειριζόμαστε τη γραμμή
