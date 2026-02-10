@@ -150,13 +150,20 @@ class MainActivity : AppCompatActivity() {
 // 1. Αρχικοποίηση του Helper
         routePlanner = RoutePlannerHelper(this, map)
 
+        routePlanner.routeUpdateListener = object : RoutePlannerHelper.OnRouteUpdateListener {
+            override fun onDistanceChanged(newDistance: Double, lastPoint: GeoPoint) {
+                // Αυτό καλείται κάθε φορά που κάνεις drag ένα σημείο!
+                updatePlanningInfoWindow(lastPoint, newDistance)
+            }
+        }
+
         // 2. Σύνδεση του κουμπιού Clear Map (Σωστά το έβαλες, απλά σιγουρέψου ότι η συνάρτηση είναι η "σαρωτική")
         val btnClearMap = findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.button_clear_map)
         btnClearMap.setOnClickListener {
-            clearMapRouting() // Αυτή που σβήνει με Iterator
+            clearMapRouting()
         }
 
-        // 3. ΕΝΑΣ και μοναδικός Listener για το Long Click
+// 3. Ο Listener για το Long Click (Όπως τον έχεις, είναι σωστός!)
         val mEventsReceiver = object : MapEventsReceiver {
             override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean = false
 
@@ -165,10 +172,9 @@ class MainActivity : AppCompatActivity() {
 
                 if (isPlanningEnabled) {
                     val totalDistance = routePlanner.addPoint(p)
-                    lastPlanningPoint = p // Αποθήκευση του τελευταίου σημείου
-                    updatePlanningInfoWindow(p, totalDistance)
+                    lastPlanningPoint = p
+                    updatePlanningInfoWindow(p, totalDistance) // Ενημέρωση κατά το πρώτο κλικ
                 } else {
-                    // Αν δεν είναι planning, κάνει την απλή δρομολόγηση που είχες
                     handleLongClick(p)
                 }
                 return true
@@ -1262,24 +1268,34 @@ class MainActivity : AppCompatActivity() {
         if (planningInfoMarker == null) {
             planningInfoMarker = Marker(map)
 
-            // Αντί για null, φτιάχνουμε ένα αόρατο εικονίδιο 1x1
+            // Διάφανο εικονίδιο για να μη φαίνεται το "χεράκι"
             val transparentBitmap = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
             transparentBitmap.eraseColor(android.graphics.Color.TRANSPARENT)
             planningInfoMarker?.icon = android.graphics.drawable.BitmapDrawable(resources, transparentBitmap)
 
-            planningInfoMarker?.setInfoWindowAnchor(0.5f, -65.0f)
+            planningInfoMarker?.setInfoWindowAnchor(0.5f, -64.5f)
         }
 
+        // --- ΥΠΟΛΟΓΙΣΜΟΣ ΧΡΟΝΟΥ (5 km/h) ---
+        val walkingMinutes = (totalDistance / 5.0) * 60.0
+        val timeText = if (walkingMinutes >= 60) {
+            val hours = (walkingMinutes / 60).toInt()
+            val mins = (walkingMinutes % 60).toInt()
+            "${hours}ω και ${mins}λ"
+        } else {
+            "${walkingMinutes.toInt()} λεπτά"
+        }
+
+        // --- ΕΝΗΜΕΡΩΣΗ ΚΕΙΜΕΝΟΥ ---
         planningInfoMarker?.position = point
         planningInfoMarker?.title = "Σχεδιασμός Διαδρομής"
-        planningInfoMarker?.snippet = "Συνολική Απόσταση: ${String.format("%.3f", totalDistance)} km"
+        // Το Snippet τώρα μοιάζει με αυτό της απλής δρομολόγησης
+        planningInfoMarker?.snippet = "Περπάτημα: $timeText\nΑπόσταση: ${String.format("%.2f", totalDistance)} km"
 
         if (!map.overlays.contains(planningInfoMarker)) {
             map.overlays.add(planningInfoMarker)
         }
 
-        // Κλείνουμε και ξανανοίγουμε για να "φρεσκάρει" τη θέση του πάνω στο νέο σημείο
-        planningInfoMarker?.closeInfoWindow()
         planningInfoMarker?.showInfoWindow()
         map.invalidate()
     }

@@ -11,14 +11,21 @@ import org.osmdroid.views.overlay.Polyline
 
 class RoutePlannerHelper(private val context: Context, private val map: MapView) {
 
+    // 1. ΟΡΙΣΜΟΣ ΤΟΥ INTERFACE (Το "τηλέφωνο" επικοινωνίας) <--- ΠΡΟΣΘΗΚΗ
+    interface OnRouteUpdateListener {
+        fun onDistanceChanged(newDistance: Double, lastPoint: GeoPoint)
+    }
+
+    // 2. Η ΜΕΤΑΒΛΗΤΗ ΤΟΥ LISTENER <--- ΠΡΟΣΘΗΚΗ
+    var routeUpdateListener: OnRouteUpdateListener? = null
+
     private var planningPoints = mutableListOf<GeoPoint>()
     private var planningMarkers = mutableListOf<Marker>()
 
-    // Δημιουργία της γραμμής με κόκκινο χρώμα και μεγαλύτερο πάχος
     private var planningPolyline = Polyline().apply {
         outlinePaint.color = Color.RED
-        outlinePaint.strokeWidth = 15f // Πιο παχιά γραμμή
-        outlinePaint.strokeCap = Paint.Cap.ROUND // Στρογγυλεμένες άκρες
+        outlinePaint.strokeWidth = 15f
+        outlinePaint.strokeCap = Paint.Cap.ROUND
         outlinePaint.isAntiAlias = true
     }
 
@@ -39,24 +46,18 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
             title = "Σημείο ${planningPoints.size}"
             icon = context.getDrawable(R.drawable.baseline_gps_fixed_24)
 
-            // --- ΕΝΕΡΓΟΠΟΙΗΣΗ ΜΕΤΑΚΙΝΗΣΗΣ ---
             isDraggable = true
-            infoWindow = null // Κλείνουμε το default για να μην ενοχλεί
+            infoWindow = null
 
             setOnMarkerDragListener(object : Marker.OnMarkerDragListener {
                 override fun onMarkerDragStart(marker: Marker) {}
 
                 override fun onMarkerDrag(marker: Marker) {
-                    // Καθώς σέρνεις τον marker, η γραμμή τεντώνεται και ακολουθεί
                     updateLineFromMarkers()
                 }
 
                 override fun onMarkerDragEnd(marker: Marker) {
-                    // Όταν αφήνεις τον marker, υπολογίζεται η τελική απόσταση
                     updateLineFromMarkers()
-
-                    // ΠΡΟΑΙΡΕΤΙΚΑ: Αν θέλεις να ενημερώνεται η "καρτέλα" στην MainActivity
-                    // μπορείς να καλέσεις εδώ μια μέθοδο ενημέρωσης.
                 }
             })
         }
@@ -74,12 +75,18 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
             newPoints.add(m.position)
         }
 
-        // Ενημέρωση της λίστας σημείων και της γραμμής
         planningPoints.clear()
         planningPoints.addAll(newPoints)
         planningPolyline.setPoints(planningPoints)
 
-        map.invalidate() // Ανανέωση χάρτη
+        map.invalidate()
+
+        // 3. ΕΝΗΜΕΡΩΣΗ ΤΗΣ MAIN ACTIVITY ΤΗΝ ΩΡΑ ΤΟΥ DRAG <--- ΠΡΟΣΘΗΚΗ
+        val newDistance = calculateTotalDistance()
+        val lastPoint = planningPoints.lastOrNull()
+        if (lastPoint != null) {
+            routeUpdateListener?.onDistanceChanged(newDistance, lastPoint)
+        }
     }
 
     private fun calculateTotalDistance(): Double {
@@ -98,18 +105,13 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
 
     fun undoLastPoint(): Double {
         if (planningPoints.isNotEmpty()) {
-            // 1. Αφαίρεση του τελευταίου σημείου από τη λίστα
             planningPoints.removeAt(planningPoints.size - 1)
-
-            // 2. Ενημέρωση της γραμμής (την αδειάζουμε και ξαναβάζουμε τα σημεία που έμειναν)
             planningPolyline.setPoints(planningPoints)
 
-            // 3. Αφαίρεση του τελευταίου Marker από τον χάρτη και τη λίστα
             if (planningMarkers.isNotEmpty()) {
                 val lastMarker = planningMarkers.removeAt(planningMarkers.size - 1)
                 map.overlays.remove(lastMarker)
             }
-
             map.invalidate()
         }
         return calculateTotalDistance()
@@ -117,7 +119,7 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
 
     fun clearAll() {
         map.overlays.remove(planningPolyline)
-        planningPolyline.setPoints(mutableListOf()) // Πλήρες άδειασμα των σημείων
+        planningPolyline.setPoints(mutableListOf())
         for (marker in planningMarkers) {
             map.overlays.remove(marker)
         }
