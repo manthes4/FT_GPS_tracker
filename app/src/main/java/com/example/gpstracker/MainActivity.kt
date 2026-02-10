@@ -74,6 +74,8 @@ private var currentSearchMarker: Marker? = null
 class MainActivity : AppCompatActivity() {
 
     private lateinit var map: MapView
+
+    private var myLocationOverlay: MyLocationNewOverlay? = null // Ορισμός εδώ!
     private lateinit var locationOverlay: MyLocationNewOverlay
     private lateinit var locationManager: LocationManager
     private lateinit var startButton: ImageButton
@@ -966,147 +968,119 @@ class MainActivity : AppCompatActivity() {
         val shortName: String,
         val lat: Double,
         val lon: Double,
-        val distance: Float // <--- Πρέπει να είναι Float ή Double
+        val distance: Float,
+        val importance: Double = 0.0,
+        val placeRank: Int = 30
     )
 
     private fun performNominatimSearch(query: String) {
+        runOnUiThread { clearMapRouting() }
+        val cleanQuery = query.trim()
+        if (cleanQuery.isEmpty()) return
 
-        val clean = query
-            .lowercase()
-            .replace(",", " ")
-            .replace("\\s+".toRegex(), " ")
-            .trim()
+        val searchedNumber = cleanQuery.split(" ").find { it.toIntOrNull() != null }
 
-        if (clean.isEmpty()) return
+        // 1. Σημείο αναφοράς για το API (Κέντρο χάρτη)
+        val mapCenter = map.mapCenter
+        val refLat = mapCenter.latitude
+        val refLon = mapCenter.longitude
 
-        val tokens = clean.split(" ")
+        // 2. Σημείο αναφοράς για τα ΧΙΛΙΟΜΕΤΡΑ (Το GPS σου)
+        // Αν το GPS δεν είναι έτοιμο, χρησιμοποιούμε το κέντρο του χάρτη
+        val userLocation = myLocationOverlay?.myLocation
+        val distRefLat = userLocation?.latitude ?: refLat
+        val distRefLon = userLocation?.longitude ?: refLon
 
-        // ξαναφτιάχνουμε query ώστε να δουλεύει ΟΠΟΙΑΔΗΠΟΤΕ σειρά λέξεων
-        val normalizedQuery = tokens.joinToString(" ")
+        val urlQuery = cleanQuery.replace(",", " ")
 
-        val encodedQuery = URLEncoder.encode(normalizedQuery, "UTF-8")
+        // Προετοιμασία φίλτρου χωρίς τόνους
+        val filterKey = cleanQuery.split(",")[0].split(" ")[0].lowercase()
+            .replace("ώ", "ω").replace("έ", "ε").replace("ά", "α")
+            .replace("ή", "η").replace("ί", "ι").replace("ό", "ο").replace("ύ", "υ")
 
-        val myLoc = locationOverlay.myLocation
-        val refLat = myLoc?.latitude ?: map.mapCenter.latitude
-        val refLon = myLoc?.longitude ?: map.mapCenter.longitude
-
-        // δυναμικό viewbox γύρω από χρήστη / χάρτη
-        val delta = 0.35
-        val viewbox =
-            "${refLon - delta},${refLat + delta}," +
-                    "${refLon + delta},${refLat - delta}"
-
-        val url =
-            "https://nominatim.openstreetmap.org/search" +
-                    "?q=$encodedQuery" +
-                    "&format=json" +
-                    "&addressdetails=1" +
-                    "&limit=50" +
-                    "&accept-language=el" +
-                    "&countrycodes=gr" +
-                    "&viewbox=$viewbox" +
-                    "&bounded=0"
+        val url = "https://photon.komoot.io/api/" +
+                "?q=${URLEncoder.encode(urlQuery, "UTF-8")}" +
+                "&limit=50" +
+                "&lat=$refLat" +
+                "&lon=$refLon" +
+                "&location_bias_scale=0.5"
 
         val client = OkHttpClient()
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", "GPSTrackerApp")
-            .build()
+        val request = Request.Builder().url(url).header("User-Agent", "GPSTrackerApp").build()
 
         client.newCall(request).enqueue(object : okhttp3.Callback {
-
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                 val jsonData = response.body?.string() ?: return
-
                 try {
-                    val jsonArray = JSONArray(jsonData)
+                    val jsonObject = JSONObject(jsonData)
+                    val features = jsonObject.getJSONArray("features")
                     val resultsList = mutableListOf<SearchResult>()
 
-                    for (i in 0 until jsonArray.length()) {
-                        val obj = jsonArray.getJSONObject(i)
-                        val addr = obj.optJSONObject("address") ?: JSONObject()
+                    for (i in 0 until features.length()) {
+                        val feature = features.getJSONObject(i)
+                        val props = feature.getJSONObject("properties")
 
-                        val road = addr.optString("road", "")
-                        val houseNumber = addr.optString("house_number", "")
-                        val suburb = addr.optString(
-                            "suburb",
-                            addr.optString("neighbourhood", "")
-                        )
-                        val city = addr.optString(
-                            "city",
-                            addr.optString("town",
-                                addr.optString("municipality", "")
-                            )
-                        )
+                        val road = props.optString("street", "")
+                        val name = props.optString("name", "")
+                        val houseNumber = props.optString("housenumber", "")
+
+                        val fullTextForFilter = "$road $name".lowercase()
+                            .replace("ώ", "ω").replace("έ", "ε").replace("ά", "α")
+                            .replace("ή", "η").replace("ί", "ι").replace("ό", "ο").replace("ύ", "υ")
+
+                        if (!fullTextForFilter.contains(filterKey)) continue
+
+                        val geometry = feature.getJSONObject("geometry")
+                        val coords = geometry.getJSONArray("coordinates")
+                        val resLon = coords.getDouble(0)
+                        val resLat = coords.getDouble(1)
 
                         val displayTitle = buildString {
-                            if (road.isNotEmpty()) append(road)
-                            if (houseNumber.isNotEmpty()) append(" $houseNumber")
-                            if (suburb.isNotEmpty()) append(", $suburb")
-                            if (city.isNotEmpty()) {
-                                val cleanCity = city.replace("Δημοτική Ενότητα", "").trim()
-                                append(", $cleanCity")
-                            }
-                            if (length < 5) append(obj.optString("display_name", ""))
+                            if (road.isNotEmpty()) {
+                                append(road)
+                                if (houseNumber.isNotEmpty()) append(" $houseNumber")
+                            } else append(name)
+
+                            val city = props.optString("city", "")
+                            val district = props.optString("district", props.optString("suburb", ""))
+                            val area = if (district.isNotEmpty()) district else city
+                            if (area.isNotEmpty()) append(", $area")
                         }
 
-                        val resLat = obj.getDouble("lat")
-                        val resLon = obj.getDouble("lon")
+                        // ΥΠΟΛΟΓΙΣΜΟΣ ΑΠΟΣΤΑΣΗΣ ΑΠΟ ΤΟ GPS (distRefLat/Lon)
+                        val distArray = FloatArray(1)
+                        android.location.Location.distanceBetween(distRefLat, distRefLon, resLat, resLon, distArray)
 
-                        val distResult = FloatArray(1)
-                        android.location.Location.distanceBetween(
-                            refLat, refLon, resLat, resLon, distResult
-                        )
-
-                        resultsList.add(
-                            SearchResult(displayTitle, resLat, resLon, distResult[0])
-                        )
+                        resultsList.add(SearchResult(displayTitle, resLat, resLon, distArray[0], 0.0, 30))
                     }
 
-                    val sortedResults = resultsList.sortedBy { it.distance }
+                    // ΤΑΞΙΝΟΜΗΣΗ ΚΑΙ ΛΗΨΗ 20 ΑΠΟΤΕΛΕΣΜΑΤΩΝ
+                    val finalResults = resultsList.sortedBy { it.distance }
+                        .distinctBy { it.shortName }
+                        .take(30)
 
                     runOnUiThread {
-                        if (sortedResults.isEmpty())
-                            showCustomToast("Δεν βρέθηκαν αποτελέσματα")
-                        else
-                        // Στέλνουμε τη sortedResults αντί για τη resultsList
-                            showNominatimSelectionDialog(sortedResults)
+                        if (finalResults.isEmpty()) {
+                            showCustomToast("Δεν βρέθηκε κάτι")
+                        } else {
+                            showNominatimSelectionDialog(finalResults)
+                        }
                     }
-
-                } catch (e: Exception) {
-                    Log.e("SEARCH_DEBUG", "Error: ${e.message}")
-                }
+                } catch (e: Exception) { e.printStackTrace() }
             }
-
-            override fun onFailure(call: okhttp3.Call, e: IOException) {
-                runOnUiThread {
-                    showCustomToast("Αποτυχία σύνδεσης στο διακομιστή")
-                }
-            }
+            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {}
         })
     }
 
-
     private fun showNominatimSelectionDialog(results: List<SearchResult>) {
-        // 1. Δημιουργία της λίστας κειμένων με την απόσταση
-        val displayNames = results.map { result ->
-            if (result.distance != Float.MAX_VALUE) {
-                val kms = result.distance / 1000 // Μετατροπή μέτρων σε χιλιόμετρα
-                // Εμφάνιση π.χ.: "Ακροπόλεως, Θεσσαλονίκη (2.4 km)"
-                "${result.shortName} (${String.format("%.1f", kms)} km)"
-            } else {
-                result.shortName // Αν δεν υπάρχει στίγμα GPS, δείξε μόνο το όνομα
-            }
+        val displayNames = results.map {
+            val kms = it.distance / 1000
+            // Εμφανίζουμε: "Δελφών, Ανάληψη (0.2 km)"
+            "${it.shortName} (${String.format("%.1f", kms)} km)"
         }.toTypedArray()
 
-        // 2. Δημιουργία του ListView (όπως το είχες)
         val listView = ListView(this).apply {
-            adapter =
-                ArrayAdapter(this@MainActivity, android.R.layout.simple_list_item_1, displayNames)
-            divider = ColorDrawable(Color.RED)
-            dividerHeight =
-                TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 2f, resources.displayMetrics)
-                    .toInt()
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_list_item_1, displayNames)
         }
 
         val dialog = AlertDialog.Builder(this)
@@ -1115,31 +1089,22 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Άκυρο", null)
             .create()
 
-        // 3. Click Listener
         listView.setOnItemClickListener { _, _, which, _ ->
             val selected = results[which]
 
-            // 1. Πάρε το κέντρο του χάρτη ΤΩΡΑ (πριν το zoom) ως εναλλακτική
-            val currentMapCenter = GeoPoint(map.mapCenter.latitude, map.mapCenter.longitude)
+            // Χρήση πραγματικού GPS για την αφετηρία
+            val lastKnown = if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+            } else null
 
-            // 2. Το σημείο προορισμού
-            val endGeoPoint = GeoPoint(selected.lat, selected.lon)
+            val startPoint = lastKnown?.let { GeoPoint(it.latitude, it.longitude) }
+                ?: locationOverlay.myLocation
+                ?: (map.mapCenter as GeoPoint)
 
-            // 3. Η αφετηρία: Προσπάθησε για GPS, αλλιώς χρησιμοποίησε το τρέχον κέντρο
-            val startGeoPoint = locationOverlay.myLocation ?: currentMapCenter
-
-            Log.d("ROUTING_DEBUG", "Εκκίνηση διαδρομής από: ${startGeoPoint.latitude}, ${startGeoPoint.longitude}")
-            Log.d("ROUTING_DEBUG", "Προς προορισμό: ${endGeoPoint.latitude}, ${endGeoPoint.longitude}")
-
-            // 4. Κάλεσε τη διαδρομή
-            calculateRoute(startGeoPoint, endGeoPoint)
-
-            // 5. Τώρα κάνε το zoom στον προορισμό
             zoomToLocation(selected.lat, selected.lon, selected.shortName)
-
+            calculateRoute(startPoint, GeoPoint(selected.lat, selected.lon))
             dialog.dismiss()
         }
-
         dialog.show()
     }
 
@@ -1193,67 +1158,34 @@ class MainActivity : AppCompatActivity() {
         Thread {
             try {
                 val roadManager = OSRMRoadManager(this, packageName)
-                val waypoints = arrayListOf(startPoint, endPoint)
-                val road = roadManager.getRoad(waypoints)
-
-                Log.d("ROUTING_DEBUG", "Status: ${road.mStatus} | Distance: ${road.mLength} km")
+                roadManager.setMean(OSRMRoadManager.MEAN_BY_FOOT)
+                val road = roadManager.getRoad(arrayListOf(startPoint, endPoint))
 
                 runOnUiThread {
                     if (road.mStatus == Road.STATUS_OK) {
-                        // 1. Καθαρισμός προηγούμενης γραμμής
                         roadOverlay?.let { map.overlays.remove(it) }
-
-                        // 2. Δημιουργία και Στυλ γραμμής
                         roadOverlay = RoadManager.buildRoadOverlay(road)
                         roadOverlay?.outlinePaint?.apply {
                             color = Color.parseColor("#5E31F7")
-                            strokeWidth = 15f
-                            strokeCap = Paint.Cap.ROUND
-                            isAntiAlias = true
+                            strokeWidth = 12f
                         }
-
-                        // Προσθήκη στην κατάλληλη θέση (πίσω από markers)
                         map.overlays.add(1, roadOverlay)
 
-                        // 3. ΥΠΟΛΟΓΙΣΜΟΣ ΓΙΑ ΠΕΖΟ (5 km/h)
-                        val distanceKm = road.mLength
-                        // Χρόνος σε λεπτά = (Απόσταση / 5) * 60
-                        val walkingMinutes = (distanceKm / 5.0) * 60.0
+                        // Σύντομο info χωρίς toast
+                        val walkingMinutes = (road.mLength / 5.0) * 60.0
+                        val timeText = if (walkingMinutes >= 60) "${(walkingMinutes/60).toInt()}ω ${(walkingMinutes%60).toInt()}λ" else "${walkingMinutes.toInt()}λ"
+                        val info = "🚶 $timeText | ${String.format("%.2f", road.mLength)} km"
 
-                        val timeText = if (walkingMinutes >= 60) {
-                            val hours = (walkingMinutes / 60).toInt()
-                            val mins = (walkingMinutes % 60).toInt()
-                            "${hours}ω και ${mins}λ"
-                        } else {
-                            "${walkingMinutes.toInt()} λεπτά"
-                        }
-
-                        // 4. Ενημέρωση UI
-// Κρατάμε την πληροφορία πιο σύντομη
-                        val info = "🚶 $timeText | 📍 ${String.format("%.2f", distanceKm)} km"
-
-// Επιλέγουμε τον ενεργό marker
                         val activeMarker = currentSearchMarker ?: endMarker
-
-                        activeMarker?.let { marker ->
-                            marker.snippet = info // Εδώ μπαίνει η μικρή πληροφορία
-                            marker.showInfoWindow()
+                        activeMarker?.let {
+                            it.snippet = info
+                            it.showInfoWindow()
                         }
-
-                        // showCustomToast(info) // <--- Η γραμμή αυτή αφαιρέθηκε ή μπήκε σε σχόλιο
-
-                        // 5. Εστίαση και Ανανέωση
-                        map.zoomToBoundingBox(road.mBoundingBox.increaseByScale(1.2f), true)
+                        map.zoomToBoundingBox(road.mBoundingBox.increaseByScale(1.3f), true)
                         map.invalidate()
-
-                    } else {
-                        showCustomToast("Σφάλμα διαδρομής: ${road.mStatus}")
                     }
                 }
-            } catch (e: Exception) {
-                Log.e("ROUTING_DEBUG", "Error: ${e.message}")
-                runOnUiThread { showCustomToast("Αποτυχία σύνδεσης στο δίκτυο") }
-            }
+            } catch (e: Exception) { Log.e("ROUTING", e.message ?: "") }
         }.start()
     }
 
