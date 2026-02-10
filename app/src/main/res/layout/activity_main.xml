@@ -50,7 +50,7 @@
         android:layout_height="65dp"
         android:orientation="horizontal"
         android:background="#1B1D2D"
-        android:weightSum="5"
+        android:weightSum="6"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
@@ -103,6 +103,29 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="2dp"
                 android:text="Stop GPS"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/fab_toggle_poi"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
+            <ImageView
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/ic_toggle_poi"
+                app:tint="#FFAB00" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="POI"
                 android:textColor="#FFFFFF"
                 android:textSize="12sp" />
         </LinearLayout>
@@ -189,30 +212,17 @@
 
     <!-- Floating Action Button for loading KML -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/fab_toggle_poi"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_marginTop="10dp"
-        android:layout_marginEnd="8dp"
-        android:backgroundTint="#FF6D00"
-        android:src="@drawable/ic_toggle_poi"
-        app:fabSize="mini"
-        app:maxImageSize="28dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/fab_search"
         android:layout_width="40dp"
         android:layout_height="40dp"
-        android:layout_marginTop="12dp"
+        android:layout_marginTop="16dp"
         android:layout_marginEnd="8dp"
         android:backgroundTint="#FF6D00"
         android:src="@drawable/search_24"
         app:fabSize="mini"
         app:maxImageSize="28dp"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/fab_toggle_poi" />
+        app:layout_constraintTop_toTopOf="parent" />
 
     <com.google.android.material.floatingactionbutton.FloatingActionButton
         android:id="@+id/button_plan_mode"
