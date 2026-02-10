@@ -1060,11 +1060,14 @@ class MainActivity : AppCompatActivity() {
                         )
                     }
 
+                    val sortedResults = resultsList.sortedBy { it.distance }
+
                     runOnUiThread {
-                        if (resultsList.isEmpty())
+                        if (sortedResults.isEmpty())
                             showCustomToast("Δεν βρέθηκαν αποτελέσματα")
                         else
-                            showNominatimSelectionDialog(resultsList)
+                        // Στέλνουμε τη sortedResults αντί για τη resultsList
+                            showNominatimSelectionDialog(sortedResults)
                     }
 
                 } catch (e: Exception) {
