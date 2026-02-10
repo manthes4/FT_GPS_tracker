@@ -59,6 +59,7 @@ import android.net.Uri
 import android.widget.ImageButton
 import android.graphics.drawable.ColorDrawable
 import android.util.TypedValue
+import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.ListView
 import org.osmdroid.bonuspack.routing.OSRMRoadManager
@@ -78,10 +79,10 @@ class MainActivity : AppCompatActivity() {
     private var myLocationOverlay: MyLocationNewOverlay? = null // Ορισμός εδώ!
     private lateinit var locationOverlay: MyLocationNewOverlay
     private lateinit var locationManager: LocationManager
-    private lateinit var startButton: ImageButton
-    private lateinit var stopButton: ImageButton
-    private lateinit var viewStatsButton: ImageButton
-    private lateinit var viewSatellitesButton: ImageButton
+    private lateinit var startButton: View
+    private lateinit var stopButton: View
+    private lateinit var viewStatsButton: View
+    private lateinit var viewSatellitesButton: View
     private lateinit var statsDisplay: TextView
     private lateinit var fabLoadKml: FloatingActionButton
     private lateinit var fabSearch: FloatingActionButton

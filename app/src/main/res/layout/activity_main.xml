@@ -47,59 +47,118 @@
     <LinearLayout
         android:id="@+id/button_container"
         android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="1dp"
+        android:layout_height="65dp"
         android:orientation="horizontal"
+        android:background="#1B1D2D"
+        android:weightSum="4"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.5"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/map"
-        app:layout_constraintVertical_bias="0.5">
+        app:layout_constraintStart_toStartOf="parent">
 
-        <ImageButton
+        <LinearLayout
             android:id="@+id/button_start"
             android:layout_width="0dp"
-            android:layout_height="49dp"
+            android:layout_height="match_parent"
             android:layout_weight="1"
-            android:background="#1B1D2D"
-            android:contentDescription="Start GPS"
-            android:padding="40dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/baseline_gps_fixed_24" />
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
 
-        <ImageButton
+            <ImageView
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/baseline_gps_fixed_24"
+                app:tint="#64DD17" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Start GPS"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/button_stop"
             android:layout_width="0dp"
-            android:layout_height="49dp"
+            android:layout_height="match_parent"
             android:layout_weight="1"
-            android:background="#1B1D2D"
-            android:contentDescription="Stop GPS"
-            android:padding="40dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/baseline_gps_off_24" />
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
 
-        <ImageButton
+            <ImageView
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/baseline_gps_off_24"
+                app:tint="#DD2C00" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Stop GPS"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/button_view_stats"
             android:layout_width="0dp"
-            android:layout_height="49dp"
+            android:layout_height="match_parent"
             android:layout_weight="1"
-            android:background="#1B1D2D"
-            android:contentDescription="View Stats"
-            android:padding="40dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/baseline_query_stats_24" />
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
 
-        <ImageButton
+            <ImageView
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/baseline_query_stats_24"
+                app:tint="#00B8D4" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Stats"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/button_view_satellites"
             android:layout_width="0dp"
-            android:layout_height="49dp"
+            android:layout_height="match_parent"
             android:layout_weight="1"
-            android:background="#1B1D2D"
-            android:contentDescription="View Satellites"
-            android:padding="40dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/baseline_satellite_alt_24" />
+            android:background="?attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <ImageView
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:src="@drawable/baseline_satellite_alt_24"
+                app:tint="#0091EA" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Satellites"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp" />
+        </LinearLayout>
+
     </LinearLayout>
 
     <!-- Floating Action Button for loading KML -->
