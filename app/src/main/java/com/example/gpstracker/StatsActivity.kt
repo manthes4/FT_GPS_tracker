@@ -43,6 +43,11 @@ class StatsActivity : AppCompatActivity() {
             val statTextView: TextView = statView.findViewById(R.id.stat_text)
             statTextView.text = formattedStat
 
+            // ΠΡΟΣΘΕΣΕ ΑΥΤΕΣ ΤΙΣ ΓΡΑΜΜΕΣ:
+            statTextView.typeface = android.graphics.Typeface.MONOSPACE
+            statTextView.letterSpacing = -0.03f // Μειώνει το κενό ανάμεσα στους χαρακτήρες
+            statTextView.gravity = android.view.Gravity.START // Διασφαλίζει στοίχιση αριστερά
+
             val exportIcon: ImageButton = statView.findViewById(R.id.export_button)
             exportIcon.setOnClickListener {
                 showExportOptionsDialog(index, stat)
@@ -191,7 +196,7 @@ class StatsActivity : AppCompatActivity() {
             val contentValues = ContentValues().apply {
                 put(MediaStore.Files.FileColumns.DISPLAY_NAME, fileName)
                 put(MediaStore.Files.FileColumns.MIME_TYPE, mimeType)
-                put(MediaStore.Files.FileColumns.RELATIVE_PATH, "Documents/")
+                put(MediaStore.Files.FileColumns.RELATIVE_PATH, "Documents/FT Gps Tracker")
             }
 
             val uri = contentResolver.insert(MediaStore.Files.getContentUri("external"), contentValues)

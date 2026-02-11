@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -455,127 +456,124 @@ class MainActivity : AppCompatActivity() {
             ) != PackageManager.PERMISSION_GRANTED
         ) return
 
-        // Αφαίρεση της διαδρομής και του περιγράμματος από το KML αν υπάρχουν
+        // 1. ΚΑΘΑΡΙΣΜΟΣ ΧΑΡΤΗ (Ο κώδικας που είχες παραμένει ίδιος)
         kmlRoute?.let { map.overlays.remove(it) }
         kmlBorderRoute?.let { map.overlays.remove(it) }
         route?.let { map.overlays.remove(it) }
         borderRoute?.let { map.overlays.remove(it) }
-
-        // Αφαίρεση όλων των markers
         startMarker?.let { map.overlays.remove(it) }
         endMarker?.let { map.overlays.remove(it) }
         greenMarker?.let { map.overlays.remove(it) }
-
-        // Αφαίρεση των KML markers
         kmlGreenMarker?.let { map.overlays.remove(it) }
         kmlPurpleMarker?.let { map.overlays.remove(it) }
-
-        // Remove the initial location marker
         initialLocationMarker?.let { map.overlays.remove(it) }
-        initialLocationMarker = null // Set to null to prevent further use
+        initialLocationMarker = null
 
-        // Reset markers to null after removal
+        // Reset markers και variables
         startMarker = null
         endMarker = null
         greenMarker = null
         kmlGreenMarker = null
         kmlPurpleMarker = null
-
+        lastLocation = null // Πολύ σημαντικό για να ξεκινήσει σωστά η νέα μέτρηση
         isTracking = true
         totalDistance = 0f
         startTime = System.currentTimeMillis()
 
-        // Δημιουργία Polyline για το μαύρο περίγραμμα
+        // 2. ΔΗΜΙΟΥΡΓΙΑ POLYLINES (Για τη νέα διαδρομή)
         borderRoute = Polyline().apply {
-            outlinePaint.apply {
-                isAntiAlias = true
-                color = android.graphics.Color.BLACK // Μαύρο περίγραμμα
-                strokeWidth = 15.0f // Πιο παχύ από την κόκκινη γραμμή
-                strokeJoin = Paint.Join.ROUND // Στρογγυλεμένες γωνίες
-                strokeCap = Paint.Cap.ROUND // Στρογγυλεμένα άκρα
-            }
+            outlinePaint.color = android.graphics.Color.BLACK
+            outlinePaint.strokeWidth = 15.0f
+            outlinePaint.strokeJoin = Paint.Join.ROUND
+            outlinePaint.strokeCap = Paint.Cap.ROUND
+            outlinePaint.isAntiAlias = true
         }
 
-        // Δημιουργία Polyline για την κόκκινη γραμμή
         route = Polyline().apply {
-            outlinePaint.apply {
-                isAntiAlias = true
-                color = android.graphics.Color.RED // Κόκκινη γραμμή
-                strokeWidth = 10.0f // Πιο λεπτή γραμμή
-                strokeJoin = Paint.Join.ROUND // Στρογγυλεμένες γωνίες
-                strokeCap = Paint.Cap.ROUND // Στρογγυλεμένα άκρα
-            }
+            outlinePaint.color = android.graphics.Color.RED
+            outlinePaint.strokeWidth = 10.0f
+            outlinePaint.strokeJoin = Paint.Join.ROUND
+            outlinePaint.strokeCap = Paint.Cap.ROUND
+            outlinePaint.isAntiAlias = true
         }
 
-        // Προσθήκη των δύο Polylines στον χάρτη: πρώτα το περίγραμμα, μετά η κόκκινη γραμμή
-        map.overlays.add(borderRoute)  // Μαύρο περίγραμμα
-        map.overlays.add(route)        // Κόκκινη γραμμή
+        map.overlays.add(borderRoute)
+        map.overlays.add(route)
 
+        // 3. ΕΚΚΙΝΗΣΗ SERVICE
         val intent = Intent(this, LocationTrackingService::class.java)
         ContextCompat.startForegroundService(this, intent)
 
         showCustomToast("Tracking started")
         zoomToLastKnownLocation()
-
         updateNotification("Tracking started")
 
+        // 4. ΕΝΗΜΕΡΩΣΗ UI (ΜΟΝΟ ΓΙΑ ΤΟ ΧΡΟΝΟΜΕΤΡΟ)
         updateStatsRunnable = object : Runnable {
             override fun run() {
                 if (isTracking) {
-                    val currentLocation =
-                        getLastKnownLocation() // Assuming this method retrieves the current location
-                    currentLocation?.let {
-                        if (lastLocation == null || lastLocation!!.distanceTo(it) > 3.5) { // Check if the distance exceeds 3 meters
-                            val geoPoint = GeoPoint(it.latitude, it.longitude)
-
-                            if (route?.actualPoints?.isEmpty() == true) {
-                                // Αν προσθέτουμε το πρώτο σημείο, βάζουμε και το πράσινο marker στην αρχή
-                                startMarker = Marker(map).apply {
-                                    position = geoPoint
-                                    icon = ContextCompat.getDrawable(
-                                        this@MainActivity,
-                                        R.drawable.green_marker
-                                    ) // πράσινο marker
-                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                }
-                                map.overlays.add(startMarker)
-                            }
-
-                            // βελος πλοηγησης
-                            if (locationMarker == null) {
-                                locationMarker = Marker(map).apply {
-                                    position = geoPoint
-                                    icon = ContextCompat.getDrawable(
-                                        this@MainActivity,
-                                        R.drawable.baseline_run_circle_24
-                                    ) // Replace with your icon drawable
-                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                }
-                                map.overlays.add(locationMarker)
-                            } else {
-                                locationMarker?.position = geoPoint
-                            }
-
-                            route?.addPoint(geoPoint)
-                            borderRoute?.addPoint(geoPoint)
-                            lastLocation = it
-                            map.invalidate()
-                        }
-                    }
-
-                    // Update distance and time stats
                     val elapsedTime = (System.currentTimeMillis() - startTime) / 1000
-                    val distanceInKm = totalDistance / 1000
+                    val distanceInKm = totalDistance / 1000.0 // Το totalDistance ενημερώνεται από τον Receiver
+
                     val formattedTime = formatTime(elapsedTime)
-                    val formattedDistance = String.format("%.3f χιλιόμετρα", distanceInKm)
+                    val formattedDistance = String.format("%.2f km", distanceInKm)
 
                     statsDisplay.text = "$formattedDistance\n$formattedTime"
-                    handler.postDelayed(this, 1000) // Update every second
+                    handler.postDelayed(this, 1000)
                 }
             }
         }
-
         handler.post(updateStatsRunnable)
+
+        // 5. ΕΓΓΡΑΦΗ ΤΟΥ RECEIVER (Με το flag για Android 14)
+        val filter = IntentFilter("LocationUpdate")
+        androidx.core.content.ContextCompat.registerReceiver(
+            this,
+            locationReceiver,
+            filter,
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+    }
+
+    private val locationReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val lat = intent?.getDoubleExtra("lat", 0.0) ?: 0.0
+            val lng = intent?.getDoubleExtra("lng", 0.0) ?: 0.0
+            val distance = intent?.getFloatExtra("distance", 0f) ?: 0f
+
+            // Ενημέρωση της απόστασης στην Activity
+            this@MainActivity.totalDistance = distance
+
+            val geoPoint = GeoPoint(lat, lng)
+
+            // ΣΧΕΔΙΑΣΗ ΓΡΑΜΜΗΣ
+            route?.addPoint(geoPoint)
+            borderRoute?.addPoint(geoPoint)
+
+            // ΕΛΕΓΧΟΣ ΓΙΑ ΠΡΑΣΙΝΟ MARKER (ΑΡΧΗ)
+            if (startMarker == null) {
+                startMarker = Marker(map).apply {
+                    position = geoPoint
+                    icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.green_marker)
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                }
+                map.overlays.add(startMarker)
+            }
+
+            // ΕΝΗΜΕΡΩΣΗ ΤΡΕΧΟΝΤΟΣ MARKER (ΑΝΘΡΩΠΑΚΙ)
+            if (locationMarker == null) {
+                locationMarker = Marker(map).apply {
+                    position = geoPoint
+                    icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.baseline_run_circle_24)
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                }
+                map.overlays.add(locationMarker)
+            } else {
+                locationMarker?.position = geoPoint
+            }
+
+            map.invalidate()
+        }
     }
 
     private fun getLastKnownLocation(): Location? {
@@ -594,54 +592,50 @@ class MainActivity : AppCompatActivity() {
         if (!isTracking) return
 
         isTracking = false
-        locationManager.removeUpdates(locationListener)
 
+        // 1. Υπολογισμός τελικών δεδομένων ΠΡΙΝ σταματήσουμε τα πάντα
         val elapsedTime = (System.currentTimeMillis() - startTime) / 1000
-        val distanceInKm = totalDistance / 1000
-
+        val distanceInKm = totalDistance / 1000.0
         val formattedTime = formatTime(elapsedTime)
-        val formattedDistance = String.format("%.3f", distanceInKm)
+        val formattedDistance = String.format("%.2f", distanceInKm)
 
+        // 2. Αποθήκευση στατιστικών και διαδρομής (το "άλλο αρχείο" που λες)
         saveStats(formattedTime, formattedDistance)
         saveRouteData()
 
-        showCustomToast("Απόσταση: $formattedDistance km, Χρόνος: $formattedTime")
-
+        // 3. Σταματάμε το Service και τον Receiver
         val intent = Intent(this, LocationTrackingService::class.java)
         stopService(intent)
 
+        try {
+            unregisterReceiver(locationReceiver)
+        } catch (e: IllegalArgumentException) {
+            // Ήδη απεγγεγραμμένος
+        }
+
+        // 4. Σταματάμε το UI Update και καθαρίζουμε το κείμενο
         handler.removeCallbacks(updateStatsRunnable)
         statsDisplay.text = ""
 
         updateNotification("Tracking stopped")
+        showCustomToast("Απόσταση: $formattedDistance km, Χρόνος: $formattedTime")
 
-        // Προσθήκη μοβ marker στο τέλος
+        // 5. Προσθήκη μοβ marker στο τελευταίο σημείο
         if (route?.actualPoints?.isNotEmpty() == true) {
             val lastPoint = route?.actualPoints?.last()
             endMarker = Marker(map).apply {
                 position = lastPoint
-                icon = ContextCompat.getDrawable(
-                    this@MainActivity,
-                    R.drawable.purple_marker
-                ) // μοβ marker
+                icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.purple_marker)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             }
             map.overlays.add(endMarker)
         }
 
-        // Clear the KML route overlay
-        kmlRoute?.let {
-            map.overlays.remove(it)
-            kmlRoute = null
-        }
+        // 6. Καθαρισμός overlays KML
+        kmlRoute?.let { map.overlays.remove(it); kmlRoute = null }
+        kmlBorderRoute?.let { map.overlays.remove(it); kmlBorderRoute = null }
 
-// Clear the KML border overlay (περίγραμμα KML διαδρομής)
-        kmlBorderRoute?.let {
-            map.overlays.remove(it)
-            kmlBorderRoute = null
-        }
-
-        map.invalidate() // Redraw the map
+        map.invalidate() // Ανανέωση χάρτη
     }
 
     private fun addPoiToMap(lat: Double, lon: Double, amenity: String, name: String) {
@@ -691,19 +685,29 @@ class MainActivity : AppCompatActivity() {
         val editor = sharedPreferences.edit()
 
         val date = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
-        val stats = "$date   $duration    $distance χιλιόμετρα\n"
 
-        editor.putString("stats", (sharedPreferences.getString("stats", "") ?: "") + stats)
+        // Χρησιμοποιούμε \t για να πηγαίνει το καθένα στη στήλη του
+        // Το %-15s σημαίνει: Δώσε 15 χαρακτήρες χώρο και στοίχισε το κείμενο αριστερά (-)
+// Το %-12s σημαίνει: Δώσε 12 χαρακτήρες χώρο κ.ο.κ.
+        val stats = String.format("%-15s %-2s %-14s\n", date, duration, distance)
+
+        val currentStats = sharedPreferences.getString("stats", "") ?: ""
+        editor.putString("stats", currentStats + stats)
         editor.apply()
     }
 
     private fun saveRouteData() {
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         val editor = sharedPreferences.edit()
-        val routeData =
-            route?.points?.joinToString("\n") { "${it.latitude}, ${it.longitude}" } ?: ""
-        editor.putString("route_data", routeData)
-        editor.apply()
+
+        // Χρησιμοποιούμε actualPoints αντί για points για σιγουριά στην osmdroid
+        val pointsList = route?.actualPoints
+
+        if (pointsList != null && pointsList.isNotEmpty()) {
+            val routeData = pointsList.joinToString("\n") { "${it.latitude},${it.longitude}" }
+            editor.putString("route_data", routeData)
+            editor.apply()
+        }
     }
 
     private fun registerGnssCallback() {

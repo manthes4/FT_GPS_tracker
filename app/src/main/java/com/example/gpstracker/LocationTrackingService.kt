@@ -20,7 +20,6 @@ import org.osmdroid.views.overlay.Polyline
 class LocationTrackingService : Service() {
 
     private lateinit var locationManager: LocationManager
-    private var route: Polyline? = null
     private var previousLocation: Location? = null
     private var totalDistance: Float = 0f
 
@@ -28,16 +27,15 @@ class LocationTrackingService : Service() {
         super.onCreate()
         startForegroundService()
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
         if (ActivityCompat.checkSelfPermission(
                 this, android.Manifest.permission.ACCESS_FINE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
         ) {
+            // Αυξάνουμε λίγο το minDistance (π.χ. 1.0f) για να βοηθήσουμε το hardware να φιλτράρει μόνο του
             locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER, 1500L, 0.1f, locationListener
+                LocationManager.GPS_PROVIDER, 1500L, 1.0f, locationListener
             )
-        } else {
-            // Handle the case where permissions are not granted
-            // Ideally, you should handle permission requests in your main activity
         }
     }
 
@@ -45,7 +43,6 @@ class LocationTrackingService : Service() {
         val channelId = "GPS_Tracking_Service_Channel"
         val channelName = "GPS Tracking Service"
 
-        // Create the notification channel for Android O and above
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
@@ -58,35 +55,47 @@ class LocationTrackingService : Service() {
             notificationManager.createNotificationChannel(channel)
         }
 
-        // Create the notification using NotificationCompat
         val notification: Notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("GPS Tracking")
-            .setContentText("Tracking your location in the background")
-            .setSmallIcon(R.drawable.ic_location) // Ensure this drawable exists
+            .setContentText("Καταγραφή διαδρομής σε εξέλιξη...")
+            .setSmallIcon(R.drawable.ic_location)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
             .build()
 
-        // Start the service in the foreground with the notification
         startForeground(1, notification)
     }
 
     private val locationListener = LocationListener { location ->
+        // 1. Φίλτρο Ακρίβειας: Αν το σήμα είναι πολύ κακό, το αγνοούμε
+        if (location.accuracy > 20) return@LocationListener
+
         if (previousLocation != null) {
             val distance = previousLocation!!.distanceTo(location)
+
+            // 2. Φίλτρο Drift: Αν η κίνηση είναι πολύ μικρή (θόρυβος), την αγνοούμε
+            // Εδώ είναι το "μυστικό" για να μην γράφει η εφαρμογή όταν είσαι σταματημένος
+            if (distance < 2.5) return@LocationListener
+
             totalDistance += distance
-            route?.addPoint(GeoPoint(location.latitude, location.longitude))
+
+            // 3. Αποστολή στην MainActivity
+            val intent = Intent("LocationUpdate")
+            intent.putExtra("lat", location.latitude)
+            intent.putExtra("lng", location.longitude)
+            intent.putExtra("distance", totalDistance)
+            sendBroadcast(intent)
         }
         previousLocation = location
     }
 
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
-    }
+    override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         super.onDestroy()
         locationManager.removeUpdates(locationListener)
+        // Μηδενισμός για την επόμενη χρήση
+        totalDistance = 0f
+        previousLocation = null
     }
 }
