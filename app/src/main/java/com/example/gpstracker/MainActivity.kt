@@ -281,6 +281,11 @@ class MainActivity : AppCompatActivity() {
                 startTracking()
             }
         }
+
+        // Έλεγχος αν η εφαρμογή άνοιξε από εξωτερικό αρχείο (File Manager)
+        intent?.data?.let { uri ->
+            handleKmlFromUri(uri)
+        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -768,20 +773,28 @@ class MainActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == PICK_KML_REQUEST && resultCode == RESULT_OK) {
             data?.data?.let { uri ->
-                contentResolver.openInputStream(uri)?.use { inputStream ->
-                    // Extract the filename from the URI
-                    val filename = getFileName(uri)
-
-                    // Parse the filename to get the distance in kilometers
-                    val distance = extractDistanceFromFilename(filename)
-
-                    // Display the distance (e.g., in a toast)
-                    showCustomToast("Distance: $distance km")
-
-                    // Parse and load the KML file
-                    parseKmlFile(inputStream)
-                }
+                // Καλούμε την ίδια συνάρτηση που καλεί και η onCreate!
+                handleKmlFromUri(uri)
             }
+        }
+    }
+
+    private fun handleKmlFromUri(uri: android.net.Uri) {
+        try {
+            contentResolver.openInputStream(uri)?.use { inputStream ->
+                // 1. Παίρνουμε το όνομα αρχείου
+                val filename = getFileName(uri)
+
+                // 2. Βγάζουμε την απόσταση
+                val distance = extractDistanceFromFilename(filename)
+                showCustomToast("Distance: $distance km")
+
+                // 3. Φορτώνουμε τη διαδρομή στον χάρτη
+                parseKmlFile(inputStream)
+            }
+        } catch (e: Exception) {
+            showCustomToast("Σφάλμα κατά το άνοιγμα του αρχείου")
+            Log.e("KML_IMPORT", "Error: ${e.message}")
         }
     }
 
