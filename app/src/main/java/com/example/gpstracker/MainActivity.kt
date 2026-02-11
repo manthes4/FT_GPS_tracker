@@ -59,6 +59,8 @@ import java.util.Locale
 import android.net.Uri
 import android.widget.ImageButton
 import android.graphics.drawable.ColorDrawable
+import android.os.Environment
+import android.provider.DocumentsContract
 import android.util.TypedValue
 import android.view.View
 import android.widget.ArrayAdapter
@@ -69,6 +71,7 @@ import org.osmdroid.bonuspack.routing.Road
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Overlay
+import java.io.File
 import java.net.URLEncoder
 
 private var currentSearchMarker: Marker? = null
@@ -762,11 +765,140 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openFileChooser() {
-        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/vnd.google-earth.kml+xml"
+        val path = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+            "FT Gps Tracker"
+        )
+
+        if (!path.exists() || !path.isDirectory) {
+            showCustomToast("Ο φάκελος FT Gps Tracker δεν βρέθηκε")
+            return
         }
-        startActivityForResult(intent, PICK_KML_REQUEST)
+
+        val files = path.listFiles { file -> file.extension.lowercase() == "kml" }
+
+        if (files.isNullOrEmpty()) {
+            showCustomToast("Δεν βρέθηκαν αρχεία KML")
+            return
+        }
+
+        // Ταξινόμηση: Τα πιο πρόσφατα αρχεία πάνω-πάνω
+        val sortedFiles = files.sortedByDescending { it.lastModified() }
+
+        // Δημιουργία της λίστας δεδομένων (Όνομα και Ημερομηνία)
+        val displayList = sortedFiles.map { file ->
+            val date = SimpleDateFormat(
+                "dd/MM/yyyy HH:mm",
+                Locale.getDefault()
+            ).format(Date(file.lastModified()))
+            mapOf("name" to file.name, "date" to date)
+        }
+
+        // Χρήση SimpleAdapter για εμφάνιση δύο γραμμών (Title και Subtitle)
+// Χρήση SimpleAdapter με παρέμβαση στον κώδικα για το περιθώριο
+        val adapter = android.widget.SimpleAdapter(
+            this,
+            displayList,
+            android.R.layout.simple_list_item_2,
+            arrayOf("name", "date"),
+            intArrayOf(android.R.id.text1, android.R.id.text2)
+        )
+
+        // Παρέμβαση μέσω ViewBinder για προσθήκη περιθωρίου στο text2 (ημερομηνία)
+        adapter.viewBinder = android.widget.SimpleAdapter.ViewBinder { view, data, _ ->
+            if (view.id == android.R.id.text2) {
+                val textView = view as TextView
+                textView.text = data.toString()
+                // Προσθέτουμε 8dp περιθώριο στο πάνω μέρος (μετατροπή dp σε px)
+                val paddingInDp = 8
+                val scale = resources.displayMetrics.density
+                val paddingInPx = (paddingInDp * scale + 0.5f).toInt()
+
+                // Διατηρούμε τα υπάρχοντα padding και αλλάζουμε μόνο το top
+                textView.setPadding(
+                    textView.paddingLeft,
+                    paddingInPx,
+                    textView.paddingRight,
+                    textView.paddingBottom
+                )
+                true
+            } else {
+                false
+            }
+        }
+
+        // Δημιουργία του διαλόγου χωρίς να τον εμφανίσουμε αμέσως (.create() αντί για .show())
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Επιλέξτε Διαδρομή")
+            .setAdapter(adapter) { _, which ->
+                val selectedFile = sortedFiles[which]
+                loadKmlFromFile(selectedFile)
+            }
+            .setNegativeButton("Ακύρωση", null)
+            .create()
+
+        // Εμφάνιση του διαλόγου
+        // Εμφάνιση του διαλόγου
+        dialog.show()
+
+        // Προσθήκη κόκκινης διαχωριστικής γραμμής 2dp
+        // Ρύθμιση της διαχωριστικής γραμμής
+        val metrics = resources.displayMetrics
+        val dividerHeight = (2 * metrics.density).toInt() // Πάχος 2dp
+        val sideMargin = (20 * metrics.density).toInt()   // Κενό 20dp αριστερά και δεξιά
+
+        // Δημιουργούμε ένα κόκκινο χρώμα
+        val redDrawable = android.graphics.drawable.ColorDrawable(android.graphics.Color.RED)
+
+
+        // Το τυλίγουμε σε ένα InsetDrawable για να του δώσουμε περιθώρια
+        val insetDivider = android.graphics.drawable.InsetDrawable(
+            redDrawable,
+            sideMargin, 2, sideMargin, 2
+        )
+
+        dialog.listView.divider = insetDivider
+        dialog.listView.dividerHeight = dividerHeight
+        // Τώρα που ο διάλογος εμφανίστηκε, μπορούμε να πιάσουμε τη ListView του
+        dialog.listView.setOnItemLongClickListener { _, _, which, _ ->
+            // ... ο υπόλοιπος κώδικας για τη διαγραφή παραμένει ίδιος ...
+            val fileToDelete = sortedFiles[which]
+
+            // Εμφάνιση επιβεβαίωσης για διαγραφή
+            AlertDialog.Builder(this)
+                .setTitle("Διαγραφή αρχείου")
+                .setMessage("Θέλετε να διαγράψετε το αρχείο:\n${fileToDelete.name}?")
+                .setPositiveButton("Διαγραφή") { _, _ ->
+                    if (fileToDelete.delete()) {
+                        showCustomToast("Το αρχείο διαγράφηκε")
+                        dialog.dismiss() // Κλείνουμε τον αρχικό διάλογο
+                        openFileChooser() // Τον ξανανοίγουμε για να ανανεωθεί η λίστα
+                    } else {
+                        showCustomToast("Αποτυχία διαγραφής")
+                    }
+                }
+                .setNegativeButton("Ακύρωση", null)
+                .show()
+
+            true // Επιστρέφουμε true για να δείξουμε ότι το κλικ καταναλώθηκε
+        }
+    }
+
+    private fun loadKmlFromFile(file: File) {
+        try {
+            val inputStream = file.inputStream()
+            val filename = file.name
+
+            // Χρησιμοποιούμε την ίδια λογική που έχεις ήδη
+            val distance = extractDistanceFromFilename(filename)
+            showCustomToast("Distance: $distance km")
+
+            parseKmlFile(inputStream)
+            inputStream.close()
+        } catch (e: Exception) {
+            showCustomToast("Σφάλμα κατά την ανάγνωση του αρχείου")
+            Log.e("KML_LOAD", "Error: ${e.message}")
+        }
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
