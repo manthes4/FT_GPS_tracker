@@ -79,6 +79,12 @@ private var currentSearchMarker: Marker? = null
 class MainActivity : AppCompatActivity() {
 
     private lateinit var map: MapView
+    private var currentSpeed: Float = 0f
+
+    private lateinit var tvDistance: TextView
+    private lateinit var tvTime: TextView
+    private lateinit var tvCurrentSpeed: TextView
+    private lateinit var tvAvgSpeed: TextView
 
     private var myLocationOverlay: MyLocationNewOverlay? = null // Ορισμός εδώ!
     private lateinit var locationOverlay: MyLocationNewOverlay
@@ -140,10 +146,14 @@ class MainActivity : AppCompatActivity() {
         stopButton = findViewById(R.id.button_stop)
         viewStatsButton = findViewById(R.id.button_view_stats)
         viewSatellitesButton = findViewById(R.id.button_view_satellites)
-        statsDisplay = findViewById(R.id.stats_display)
         fabLoadKml = findViewById(R.id.fab_load_kml)
         fabSearch = findViewById(R.id.fab_search)
         fabTogglePOI = findViewById(R.id.fab_toggle_poi)  // Initialize new FAB
+
+        tvDistance = findViewById(R.id.tv_distance)
+        tvTime = findViewById(R.id.tv_time)
+        tvCurrentSpeed = findViewById(R.id.tv_current_speed)
+        tvAvgSpeed = findViewById(R.id.tv_avg_speed)
 
         map.setMultiTouchControls(true)
         map.setTileSource(TileSourceFactory.MAPNIK)
@@ -412,29 +422,28 @@ class MainActivity : AppCompatActivity() {
         ) {
             val lastKnownLocation =
                 locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+
             lastKnownLocation?.let {
                 val geoPoint = GeoPoint(it.latitude, it.longitude)
                 map.controller.setCenter(geoPoint)
                 map.controller.setZoom(17.0)
 
-                // Add a marker for the initial location
+                // Προσθήκη marker για την αρχική θέση (ανθρωπάκι)
                 initialLocationMarker = Marker(map).apply {
                     position = geoPoint
                     icon = ContextCompat.getDrawable(
                         this@MainActivity,
                         R.drawable.baseline_run_circle_24
-                    ) // Replace with your icon drawable
+                    )
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    title = "Initial Location" // Optional title
+                    title = "Η θέση μου"
                 }
                 map.overlays.add(initialLocationMarker)
             }
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                4500L,
-                4.1f,
-                locationListener
-            )
+
+            // ΕΔΩ ΔΕΝ ΒΑΖΟΥΜΕ locationManager.requestLocationUpdates!
+            // Η ενημέρωση της θέσης θα γίνεται αυτόματα από το Service
+            // μόλις πατήσεις Start GPS μέσω του locationReceiver.
         }
     }
 
@@ -520,13 +529,25 @@ class MainActivity : AppCompatActivity() {
         updateStatsRunnable = object : Runnable {
             override fun run() {
                 if (isTracking) {
-                    val elapsedTime = (System.currentTimeMillis() - startTime) / 1000
-                    val distanceInKm = totalDistance / 1000.0 // Το totalDistance ενημερώνεται από τον Receiver
+                    val currentTime = System.currentTimeMillis()
+                    // Ορίζουμε το elapsedTime εδώ για να το αναγνωρίζει παρακάτω
+                    val elapsedTime = (currentTime - startTime) / 1000
 
-                    val formattedTime = formatTime(elapsedTime)
-                    val formattedDistance = String.format("%.2f km", distanceInKm)
+                    // Μετατροπή totalDistance (σε μέτρα) σε χιλιόμετρα
+                    val distanceInKm = totalDistance / 1000.0
 
-                    statsDisplay.text = "$formattedDistance\n$formattedTime"
+                    // 1. Υπολογισμός Μέσης Ταχύτητας (Average Speed)
+                    val avgSpeed = if (elapsedTime > 0) (distanceInKm / elapsedTime) * 3600 else 0.0
+
+                    // 2. Ενημέρωση των νέων TextViews (Οι 3 στήλες)
+                    tvDistance.text = String.format("%.2f km", distanceInKm)
+                    tvTime.text = formatTime(elapsedTime)
+                    tvCurrentSpeed.text = String.format("%.1f", currentSpeed)
+                    tvAvgSpeed.text = String.format("%.1f", avgSpeed)
+
+                    // ΠΡΟΣΟΧΗ: Διαγράψαμε το statsDisplay.text γιατί πλέον
+                    // χρησιμοποιούμε τα tvDistance, tvTime κτλ.
+
                     handler.postDelayed(this, 1000)
                 }
             }
@@ -548,6 +569,7 @@ class MainActivity : AppCompatActivity() {
             val lat = intent?.getDoubleExtra("lat", 0.0) ?: 0.0
             val lng = intent?.getDoubleExtra("lng", 0.0) ?: 0.0
             val distance = intent?.getFloatExtra("distance", 0f) ?: 0f
+            currentSpeed = intent?.getFloatExtra("current_speed", 0f) ?: 0f
 
             // Ενημέρωση της απόστασης στην Activity
             this@MainActivity.totalDistance = distance
@@ -598,39 +620,36 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopTracking() {
         if (!isTracking) return
-
         isTracking = false
 
-        // 1. Υπολογισμός τελικών δεδομένων ΠΡΙΝ σταματήσουμε τα πάντα
+        // 1. Υπολογισμός τελικών δεδομένων
         val elapsedTime = (System.currentTimeMillis() - startTime) / 1000
         val distanceInKm = totalDistance / 1000.0
         val formattedTime = formatTime(elapsedTime)
         val formattedDistance = String.format("%.2f", distanceInKm)
 
-        // 2. Αποθήκευση στατιστικών και διαδρομής (το "άλλο αρχείο" που λες)
+        // 2. Αποθήκευση στο Ιστορικό (για το κουμπί Stats)
         saveStats(formattedTime, formattedDistance)
         saveRouteData()
 
-        // 3. Σταματάμε το Service και τον Receiver
+        // 3. Σταμάτημα Service & Receiver
         val intent = Intent(this, LocationTrackingService::class.java)
         stopService(intent)
 
-        try {
-            unregisterReceiver(locationReceiver)
-        } catch (e: IllegalArgumentException) {
-            // Ήδη απεγγεγραμμένος
-        }
+        try { unregisterReceiver(locationReceiver) } catch (e: Exception) {}
 
-        // 4. Σταματάμε το UI Update και καθαρίζουμε το κείμενο
+        // 4. Σταμάτημα UI Update & Καθαρισμός των 4 νέων πεδίων
         handler.removeCallbacks(updateStatsRunnable)
-        statsDisplay.text = ""
+        tvDistance.text = "0.00 km"
+        tvTime.text = "00:00:00"
+        tvCurrentSpeed.text = "0.0"
+        tvAvgSpeed.text = "0.0"
 
         updateNotification("Tracking stopped")
         showCustomToast("Απόσταση: $formattedDistance km, Χρόνος: $formattedTime")
 
-        // 5. Προσθήκη μοβ marker στο τελευταίο σημείο
-        if (route?.actualPoints?.isNotEmpty() == true) {
-            val lastPoint = route?.actualPoints?.last()
+        // 5. Προσθήκη μοβ marker στο τέλος
+        route?.actualPoints?.lastOrNull()?.let { lastPoint ->
             endMarker = Marker(map).apply {
                 position = lastPoint
                 icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.purple_marker)
@@ -639,11 +658,7 @@ class MainActivity : AppCompatActivity() {
             map.overlays.add(endMarker)
         }
 
-        // 6. Καθαρισμός overlays KML
-        kmlRoute?.let { map.overlays.remove(it); kmlRoute = null }
-        kmlBorderRoute?.let { map.overlays.remove(it); kmlBorderRoute = null }
-
-        map.invalidate() // Ανανέωση χάρτη
+        map.invalidate()
     }
 
     private fun addPoiToMap(lat: Double, lon: Double, amenity: String, name: String) {
@@ -740,28 +755,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
-    }
-
-    private val locationListener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            if (isTracking) {
-                val currentGeoPoint = GeoPoint(location.latitude, location.longitude)
-                route?.let {  // Safe call with let for route to avoid NPE
-                    it.addPoint(currentGeoPoint)
-                }
-
-                previousLocation?.let {
-                    totalDistance += location.distanceTo(it)
-                }
-                previousLocation = location
-
-                map.controller.setCenter(currentGeoPoint)
-            }
-        }
-
-        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
     }
 
     private fun openFileChooser() {

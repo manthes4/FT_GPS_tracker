@@ -23,7 +23,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.GPSTracker">
 
-        <!-- Foreground Service Declaration -->
+        <!-- Foregrou`nd Service Declaration -->
         <service
             android:name=".LocationTrackingService"
             android:exported="false"

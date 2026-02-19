@@ -67,23 +67,31 @@ class LocationTrackingService : Service() {
     }
 
     private val locationListener = LocationListener { location ->
-        // 1. Φίλτρο Ακρίβειας: Αν το σήμα είναι πολύ κακό, το αγνοούμε
         if (location.accuracy > 20) return@LocationListener
+
+        // Υπολογίζουμε την ταχύτητα ΕΞΩ από το check του previousLocation
+        // ώστε να ενημερώνεται η οθόνη ακόμα και στην πρώτη λήψη σήματος
+        val currentSpeedKmH = location.speed * 3.6f
 
         if (previousLocation != null) {
             val distance = previousLocation!!.distanceTo(location)
-
-            // 2. Φίλτρο Drift: Αν η κίνηση είναι πολύ μικρή (θόρυβος), την αγνοούμε
-            // Εδώ είναι το "μυστικό" για να μην γράφει η εφαρμογή όταν είσαι σταματημένος
-            if (distance < 2.5) return@LocationListener
+            if (distance < 2.5) {
+                // Ακόμα και αν δεν μετακινηθήκαμε αρκετά για να μετρήσουμε απόσταση,
+                // στέλνουμε την ταχύτητα (που μπορεί να είναι 0) για να ενημερωθεί το UI
+                val intent = Intent("LocationUpdate")
+                intent.putExtra("current_speed", currentSpeedKmH)
+                intent.putExtra("distance", totalDistance) // Στέλνουμε την παλιά απόσταση
+                sendBroadcast(intent)
+                return@LocationListener
+            }
 
             totalDistance += distance
 
-            // 3. Αποστολή στην MainActivity
             val intent = Intent("LocationUpdate")
             intent.putExtra("lat", location.latitude)
             intent.putExtra("lng", location.longitude)
             intent.putExtra("distance", totalDistance)
+            intent.putExtra("current_speed", currentSpeedKmH)
             sendBroadcast(intent)
         }
         previousLocation = location
