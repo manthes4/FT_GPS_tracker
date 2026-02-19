@@ -36,45 +36,42 @@ class StatsActivity : AppCompatActivity() {
         val statsList = statsText.split("\n").filter { it.isNotEmpty() }
 
         statsList.forEachIndexed { index, stat ->
+            // 1. Φόρτωση του stat_item layout
             val statView = layoutInflater.inflate(R.layout.stat_item, statsContainer, false)
 
-            val formattedStat = formatStat(stat, index + 1)
+            // 2. Χωρισμός του κειμένου (Ημερομηνία Χρόνος Χιλιόμετρα)
+            val parts = stat.split("\\s+".toRegex()).filter { it.isNotEmpty() }
 
-            val statTextView: TextView = statView.findViewById(R.id.stat_text)
-            statTextView.text = formattedStat
+            if (parts.size >= 4) { // Τώρα ελέγχουμε για 4 μέρη
+                val tvDate: TextView = statView.findViewById(R.id.stat_date)
+                val tvTime: TextView = statView.findViewById(R.id.stat_time)
+                val tvDist: TextView = statView.findViewById(R.id.stat_dist)
+                val tvAvg: TextView = statView.findViewById(R.id.stat_avg_speed)
 
-            // ΠΡΟΣΘΕΣΕ ΑΥΤΕΣ ΤΙΣ ΓΡΑΜΜΕΣ:
-            statTextView.typeface = android.graphics.Typeface.MONOSPACE
-            statTextView.letterSpacing = -0.03f // Μειώνει το κενό ανάμεσα στους χαρακτήρες
-            statTextView.gravity = android.view.Gravity.START // Διασφαλίζει στοίχιση αριστερά
+                tvDate.text = parts[0]
+                tvTime.text = "Χρόνος: ${parts[1]}"
+                tvDist.text = "${parts[2]} km"
+                tvAvg.text = "Μέση: ${parts[3]} km/h"
+            }
 
+            // 3. Κουμπί Export (μέσα σε κάθε item)
             val exportIcon: ImageButton = statView.findViewById(R.id.export_button)
             exportIcon.setOnClickListener {
                 showExportOptionsDialog(index, stat)
             }
+
+            // 4. Long Click για διαγραφή της συγκεκριμένης διαδρομής
             statView.setOnLongClickListener {
                 showDeleteConfirmationDialog(index)
                 true
             }
 
+            // 5. Προσθήκη του item στο container
             statsContainer.addView(statView)
-
-            if (index < statsList.size - 1) {
-                val divider = TextView(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        dpToPx(3)
-                    ).apply {
-                        setMargins(19, 4, 19, 4)
-                    }
-                    setBackgroundColor(ContextCompat.getColor(this@StatsActivity, android.R.color.holo_red_dark))
-                }
-                statsContainer.addView(divider)
-            }
         }
 
-        // Floating action button for deleting all stats
-        val deleteAllButton: FloatingActionButton = findViewById(R.id.fab_delete_all)
+        // 6. Σύνδεση του Floating Button για διαγραφή όλων (ΕΞΩ από το loop)
+        val deleteAllButton: com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton = findViewById(R.id.fab_delete_all)
         deleteAllButton.setOnClickListener {
             showDeleteAllConfirmationDialog()
         }
@@ -88,21 +85,17 @@ class StatsActivity : AppCompatActivity() {
     private fun formatStat(stat: String, index: Int): String {
         val parts = stat.split("\\s+".toRegex()).filter { it.isNotEmpty() }
 
-        return when {
-            parts.size >= 3 -> String.format(
-                "%2d. %s   %s  %s χλμ",
-                index,
-                parts[0],
-                parts[1],
-                parts[2]
-            )
-            parts.size == 2 -> String.format(
-                "%d. %s %s",
-                index,
-                parts[0],
-                parts[1]
-            )
-            else -> String.format("%d. %s", index, stat)
+        // Έστω ότι το stat είναι: "19/02/26 00:45:10 5.20 6.5"
+        return if (parts.size >= 4) {
+            val date = parts[0]
+            val time = parts[1]
+            val dist = parts[2]
+            val pace = parts[3]
+
+            // Χρησιμοποιούμε \n για να αλλάξουμε σειρά εσωτερικά στο TextView
+            "${index}. $date — $dist χλμ\n   Διάρκεια: $time | Ταχύτητα: $pace km/h"
+        } else {
+            "$index. $stat"
         }
     }
 

@@ -622,43 +622,34 @@ class MainActivity : AppCompatActivity() {
         if (!isTracking) return
         isTracking = false
 
-        // 1. Υπολογισμός τελικών δεδομένων
+        // 1. Τελικοί Υπολογισμοί
         val elapsedTime = (System.currentTimeMillis() - startTime) / 1000
         val distanceInKm = totalDistance / 1000.0
         val formattedTime = formatTime(elapsedTime)
         val formattedDistance = String.format("%.2f", distanceInKm)
 
-        // 2. Αποθήκευση στο Ιστορικό (για το κουμπί Stats)
-        saveStats(formattedTime, formattedDistance)
+        // Υπολογισμός Μέσης Ταχύτητας για το Save
+        val finalAvgSpeed = if (elapsedTime > 0) (distanceInKm / elapsedTime) * 3600 else 0.0
+        val formattedAvgSpeed = String.format("%.1f", finalAvgSpeed)
+
+        // 2. Αποθήκευση (Στέλνουμε και τις 3 παραμέτρους)
+        saveStats(formattedTime, formattedDistance, formattedAvgSpeed)
         saveRouteData()
 
-        // 3. Σταμάτημα Service & Receiver
+        // 3. Σταμάτημα Service & UI
         val intent = Intent(this, LocationTrackingService::class.java)
         stopService(intent)
-
         try { unregisterReceiver(locationReceiver) } catch (e: Exception) {}
-
-        // 4. Σταμάτημα UI Update & Καθαρισμός των 4 νέων πεδίων
         handler.removeCallbacks(updateStatsRunnable)
+
+        // 4. Καθαρισμός UI πεδίων
         tvDistance.text = "0.00 km"
         tvTime.text = "00:00:00"
         tvCurrentSpeed.text = "0.0"
         tvAvgSpeed.text = "0.0"
 
-        updateNotification("Tracking stopped")
-        showCustomToast("Απόσταση: $formattedDistance km, Χρόνος: $formattedTime")
-
-        // 5. Προσθήκη μοβ marker στο τέλος
-        route?.actualPoints?.lastOrNull()?.let { lastPoint ->
-            endMarker = Marker(map).apply {
-                position = lastPoint
-                icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.purple_marker)
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            }
-            map.overlays.add(endMarker)
-        }
-
         map.invalidate()
+        showCustomToast("Αποθηκεύτηκε: $formattedDistance km με $formattedAvgSpeed km/h")
     }
 
     private fun addPoiToMap(lat: Double, lon: Double, amenity: String, name: String) {
@@ -703,20 +694,14 @@ class MainActivity : AppCompatActivity() {
         return String.format("%02d:%02d:%02d", hours, minutes, secs)
     }
 
-    private fun saveStats(duration: String, distance: String) {
+    private fun saveStats(time: String, distance: String, avgSpeed: String) {
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
-        val editor = sharedPreferences.edit()
+        val stats = sharedPreferences.getString("stats", "") ?: ""
+        val date = SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(Date())
 
-        val date = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
-
-        // Χρησιμοποιούμε \t για να πηγαίνει το καθένα στη στήλη του
-        // Το %-15s σημαίνει: Δώσε 15 χαρακτήρες χώρο και στοίχισε το κείμενο αριστερά (-)
-// Το %-12s σημαίνει: Δώσε 12 χαρακτήρες χώρο κ.ο.κ.
-        val stats = String.format("%-15s %-2s %-14s\n", date, duration, distance)
-
-        val currentStats = sharedPreferences.getString("stats", "") ?: ""
-        editor.putString("stats", currentStats + stats)
-        editor.apply()
+        // Αποθηκεύουμε με τη σειρά: Ημερομηνία Χρόνος Απόσταση Ταχύτητα
+        val newStat = "$date $time $distance $avgSpeed\n"
+        sharedPreferences.edit().putString("stats", stats + newStat).apply()
     }
 
     private fun saveRouteData() {
