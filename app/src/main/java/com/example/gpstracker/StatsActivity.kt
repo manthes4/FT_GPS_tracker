@@ -51,7 +51,7 @@ class StatsActivity : AppCompatActivity() {
                 tvDate.text = parts[0]
                 tvTime.text = "Χρόνος: ${parts[1]}"
                 tvDist.text = "${parts[2]} km"
-                tvAvg.text = "Μέση: ${parts[3]} km/h"
+                tvAvg.text = "Avg: ${parts[3]} km/h"
             }
 
             // 3. Κουμπί Export (μέσα σε κάθε item)

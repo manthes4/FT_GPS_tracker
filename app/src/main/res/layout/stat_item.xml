@@ -21,7 +21,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textColor="#FFFFFF"
+            android:textColor="#F83F05"
             android:textSize="15sp"
             android:textStyle="bold"
             android:text="19/02/26" />
@@ -32,8 +32,8 @@
             android:layout_height="wrap_content"
             android:layout_weight="1.2"
             android:gravity="center"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
+            android:textColor="#E2F809"
+            android:textSize="15sp"
             android:textStyle="bold"
             android:text="5.20 km" />
 
@@ -64,8 +64,8 @@
             android:id="@+id/stat_time"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#BBBBBB"
-            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
             android:fontFamily="monospace"
             android:text="Χρόνος: 00:45:12" />
 
@@ -74,9 +74,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="end"
-            android:textColor="#BBBBBB"
-            android:textSize="13sp"
-            android:text="Μέση: 12.5 km/h" />
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:text="Avg: 12.5 km/h" />
     </LinearLayout>
 
 </LinearLayout>
