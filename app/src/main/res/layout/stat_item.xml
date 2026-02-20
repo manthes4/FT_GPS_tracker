@@ -12,40 +12,37 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:weightSum="3">
+        android:orientation="horizontal">
 
         <TextView
             android:id="@+id/stat_date"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
             android:textColor="#F83F05"
             android:textSize="15sp"
             android:textStyle="bold"
             android:text="19/02/26" />
 
         <TextView
-            android:id="@+id/stat_dist"
+            android:id="@+id/stat_time"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1.2"
+            android:layout_weight="1"
             android:gravity="center"
-            android:textColor="#E2F809"
+            android:textColor="#FBE104"
             android:textSize="15sp"
             android:textStyle="bold"
-            android:text="5.20 km" />
+            android:fontFamily="monospace"
+            android:text="00:45:12" />
 
         <ImageButton
             android:id="@+id/export_button"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="0.8"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/baseline_save_as_24"
             app:tint="#64DD17"
-            android:gravity="end"
             android:scaleType="centerInside" />
     </LinearLayout>
 
@@ -58,25 +55,39 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:weightSum="3">
 
         <TextView
-            android:id="@+id/stat_time"
-            android:layout_width="wrap_content"
+            android:id="@+id/stat_dist"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:textColor="#FFFFFF"
-            android:textSize="15sp"
-            android:fontFamily="monospace"
-            android:text="Χρόνος: 00:45:12" />
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:text="5.20 km" />
 
         <TextView
             android:id="@+id/stat_avg_speed"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:text="12.5 km/h"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/stat_steps"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
             android:gravity="end"
             android:textColor="#FFFFFF"
             android:textSize="14sp"
-            android:text="Avg: 12.5 km/h" />
+            android:textStyle="bold"
+            android:text="1250 steps" />
     </LinearLayout>
-
 </LinearLayout>

@@ -86,6 +86,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvCurrentSpeed: TextView
     private lateinit var tvAvgSpeed: TextView
 
+    private lateinit var tvSteps: TextView     // Το UI στοιχείο
+    private var currentSteps: Int = 0          // Τα βήματα της τρέχουσας διαδρομής
+    private var initialSteps: Int = 0          // Η αρχική τιμή του αισθητήρα
+    //μετρηση βηματων
+    private lateinit var stepCounterManager: StepCounterManager
+
     private var myLocationOverlay: MyLocationNewOverlay? = null // Ορισμός εδώ!
     private lateinit var locationOverlay: MyLocationNewOverlay
     private lateinit var locationManager: LocationManager
@@ -154,6 +160,7 @@ class MainActivity : AppCompatActivity() {
         tvTime = findViewById(R.id.tv_time)
         tvCurrentSpeed = findViewById(R.id.tv_current_speed)
         tvAvgSpeed = findViewById(R.id.tv_avg_speed)
+        tvSteps = findViewById(R.id.tv_steps) // ΑΥΤΟ ΛΕΙΠΕΙ ΚΑΙ ΕΙΝΑΙ ΚΡΙΣΙΜΟ
 
         map.setMultiTouchControls(true)
         map.setTileSource(TileSourceFactory.MAPNIK)
@@ -196,6 +203,20 @@ class MainActivity : AppCompatActivity() {
                     handleLongClick(p)
                 }
                 return true
+            }
+        }
+
+        stepCounterManager = StepCounterManager(this) { steps ->
+            if (isTracking) { // Μετράμε μόνο αν έχουμε πατήσει Start
+                if (initialSteps == 0) {
+                    initialSteps = steps
+                }
+                currentSteps = steps - initialSteps
+
+                // ΑΥΤΟ ΕΙΝΑΙ ΤΟ ΚΛΕΙΔΙ: Ενημέρωση της οθόνης
+                runOnUiThread {
+                    tvSteps.text = currentSteps.toString()
+                }
             }
         }
 
@@ -332,6 +353,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 101) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Αν δόθηκαν οι άδειες, ξεκινάμε το tracking
+                startTracking()
+            } else {
+                showCustomToast("Οι άδειες τοποθεσίας και βημάτων είναι απαραίτητες!")
+            }
+        }
+    }
+
     private fun fetchAndDisplayPOIs() {
         // Clear existing POIs
         poiMarkers.forEach { map.overlays.remove(it) }
@@ -448,19 +481,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun checkPermissionsAndStartTracking() {
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_BACKGROUND_LOCATION
-                ),
-                1
-            )
+        val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION)
+
+        // Πρόσθεσε την άδεια βημάτων μόνο αν το κινητό είναι Android 10+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            permissions.add(Manifest.permission.ACTIVITY_RECOGNITION)
+        }
+
+        // ΠΡΟΣΟΧΗ: Αφαιρέσαμε το ACCESS_BACKGROUND_LOCATION από εδώ.
+        // Το Android απαγορεύει να το ζητάς μαζί με τα υπόλοιπα.
+
+        val missingPermissions = permissions.filter {
+            ActivityCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missingPermissions.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missingPermissions.toTypedArray(), 101)
         } else {
             startTracking()
         }
@@ -520,6 +556,10 @@ class MainActivity : AppCompatActivity() {
         // 3. ΕΚΚΙΝΗΣΗ SERVICE
         val intent = Intent(this, LocationTrackingService::class.java)
         ContextCompat.startForegroundService(this, intent)
+
+        // ΠΡΟΣΘΕΣΕ ΑΥΤΟ ΕΔΩ:
+        currentSteps = 0 // Μηδενίζουμε για τη νέα διαδρομή
+        stepCounterManager.start()
 
         showCustomToast("Tracking started")
         zoomToLastKnownLocation()
@@ -622,6 +662,10 @@ class MainActivity : AppCompatActivity() {
         if (!isTracking) return
         isTracking = false
 
+        // ΠΡΟΣΘΕΣΕ ΑΥΤΟ ΕΔΩ:
+        stepCounterManager.stop()
+        val finalSteps = currentSteps // Η μεταβλητή που ενημερώνεται αυτόματα από το callback
+
         // 1. Τελικοί Υπολογισμοί
         val elapsedTime = (System.currentTimeMillis() - startTime) / 1000
         val distanceInKm = totalDistance / 1000.0
@@ -632,9 +676,8 @@ class MainActivity : AppCompatActivity() {
         val finalAvgSpeed = if (elapsedTime > 0) (distanceInKm / elapsedTime) * 3600 else 0.0
         val formattedAvgSpeed = String.format("%.1f", finalAvgSpeed)
 
-        // 2. Αποθήκευση (Στέλνουμε και τις 3 παραμέτρους)
-        saveStats(formattedTime, formattedDistance, formattedAvgSpeed)
-        saveRouteData()
+        // 2. Αποθήκευση - ΠΡΟΣΕΞΕ ΤΗΝ ΑΛΛΑΓΗ ΣΤΗ saveStats
+        saveStats(formattedTime, formattedDistance, formattedAvgSpeed, finalSteps.toString())
 
         // 3. Σταμάτημα Service & UI
         val intent = Intent(this, LocationTrackingService::class.java)
@@ -694,13 +737,14 @@ class MainActivity : AppCompatActivity() {
         return String.format("%02d:%02d:%02d", hours, minutes, secs)
     }
 
-    private fun saveStats(time: String, distance: String, avgSpeed: String) {
+    // Πρόσθεσε την παράμετρο steps
+    private fun saveStats(time: String, distance: String, avgSpeed: String, steps: String) {
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         val stats = sharedPreferences.getString("stats", "") ?: ""
         val date = SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(Date())
 
-        // Αποθηκεύουμε με τη σειρά: Ημερομηνία Χρόνος Απόσταση Ταχύτητα
-        val newStat = "$date $time $distance $avgSpeed\n"
+        // Προσθέτουμε και τα βήματα στο τέλος του String (διαχωρισμένα με κενό)
+        val newStat = "$date $time $distance $avgSpeed $steps\n"
         sharedPreferences.edit().putString("stats", stats + newStat).apply()
     }
 
@@ -862,20 +906,70 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun getStatsFromFilename(filename: String): String {
+        return try {
+            val cleanName = filename.replace(".kml", "")
+            val parts = cleanName.split("_")
+
+            val date = parts.getOrNull(0) ?: "-"
+            val time = parts.find { it.contains(":") } ?: "00:00:00"
+            val dist = parts.find { it.contains("km") } ?: "0.00km"
+            val steps = parts.find { it.contains("steps") }?.replace("steps", "") ?: "0"
+
+            // Σειρά 1: Ημερομηνία & Βήματα
+            // Σειρά 2: Απόσταση & Χρόνος
+            // Χρησιμοποιούμε &nbsp; για οριζόντιο κενό και ένα μόνο <br/> για αλλαγή γραμμής
+
+            "<b><big>📅 $date &nbsp;&nbsp;&nbsp; 👣 $steps βήματα</big></b><br/>" +
+                    "<b><big>📍 $dist &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⏱️ $time</big></b>"
+
+        } catch (e: Exception) {
+            "<b><big>Πληροφορίες διαδρομής</big></b>"
+        }
+    }
+
     private fun loadKmlFromFile(file: File) {
         try {
             val inputStream = file.inputStream()
             val filename = file.name
 
-            // Χρησιμοποιούμε την ίδια λογική που έχεις ήδη
-            val distance = extractDistanceFromFilename(filename)
-            showCustomToast("Distance: $distance km")
-
+            // 1. Εκτελείται η υπάρχουσα συνάρτηση που σχεδιάζει τα πάντα
             parseKmlFile(inputStream)
             inputStream.close()
+
+            // 2. Παίρνουμε τα σημεία από την Polyline που μόλις δημιούργησε η parseKmlFile
+            val points = kmlRoute?.points
+
+            if (points != null && points.isNotEmpty()) {
+                val statsSummary = getStatsFromFilename(filename)
+
+                // 3. Δημιουργούμε έναν αόρατο ή διάφανο Marker για να δείξει το InfoWindow
+                val infoMarker = Marker(map)
+                infoMarker.position = points.first() // Στο πρώτο σημείο
+
+                // Αν θέλεις να φαίνεται πάνω από τον πράσινο marker:
+                infoMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+
+                // Για να μην φαίνεται δεύτερο εικονίδιο, μπορούμε να του βάλουμε
+                // ένα διάφανο χρώμα ή να χρησιμοποιήσουμε τον ήδη υπάρχοντα kmlGreenMarker
+                kmlGreenMarker?.let {
+                    it.title = "Στατιστικά Διαδρομής"
+                    it.snippet = statsSummary
+                    it.showInfoWindow() // Εμφάνιση των stats
+                } ?: run {
+                    // Αν για κάποιο λόγο δεν υπάρχει ο kmlGreenMarker
+                    infoMarker.title = "Στατιστικά Διαδρομής"
+                    infoMarker.snippet = statsSummary
+                    map.overlays.add(infoMarker)
+                    infoMarker.showInfoWindow()
+                }
+
+                // Εστίαση στην αρχή
+                map.controller.animateTo(points.first())
+                map.invalidate()
+            }
         } catch (e: Exception) {
-            showCustomToast("Σφάλμα κατά την ανάγνωση του αρχείου")
-            Log.e("KML_LOAD", "Error: ${e.message}")
+            Log.e("LOAD_KML", "Error: ${e.message}")
         }
     }
 
@@ -932,10 +1026,13 @@ class MainActivity : AppCompatActivity() {
 
     // Helper function to extract the distance from the filename
     private fun extractDistanceFromFilename(filename: String): String {
-        // Regular expression to find the distance, assuming it's in the format 1,425χιλιόμετρα
-        val regex = Regex("""(\d+,\d+)χιλιόμετρα""")
+        // Το Regex αυτό πιάνει:
+        // 1) Αριθμούς με κόμμα ή τελεία (\d+[.,]?\d*)
+        // 2) Που ακολουθούνται είτε από "χιλιόμετρα" είτε από "km"
+        val regex = Regex("""(\d+[.,]?\d*)(?:χιλιόμετρα|km)""")
         val matchResult = regex.find(filename)
-        return matchResult?.groups?.get(1)?.value ?: "Unknown distance"
+
+        return matchResult?.groups?.get(1)?.value ?: "Unknown"
     }
 
     private fun parseKmlFile(inputStream: InputStream) {

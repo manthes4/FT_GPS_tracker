@@ -39,19 +39,31 @@ class StatsActivity : AppCompatActivity() {
             // 1. Φόρτωση του stat_item layout
             val statView = layoutInflater.inflate(R.layout.stat_item, statsContainer, false)
 
-            // 2. Χωρισμός του κειμένου (Ημερομηνία Χρόνος Χιλιόμετρα)
+            // 2. Χωρισμός του κειμένου (Ημερομηνία Χρόνος Χιλιόμετρα Ταχύτητα Βήματα)
             val parts = stat.split("\\s+".toRegex()).filter { it.isNotEmpty() }
 
-            if (parts.size >= 4) { // Τώρα ελέγχουμε για 4 μέρη
+            // ΕΛΕΓΧΟΣ: Περιμένουμε πλέον 5 μέρη (Date, Time, Distance, Speed, Steps)
+            if (parts.size >= 5) {
                 val tvDate: TextView = statView.findViewById(R.id.stat_date)
                 val tvTime: TextView = statView.findViewById(R.id.stat_time)
                 val tvDist: TextView = statView.findViewById(R.id.stat_dist)
                 val tvAvg: TextView = statView.findViewById(R.id.stat_avg_speed)
+                val tvSteps: TextView = statView.findViewById(R.id.stat_steps)
 
+                // Εμφάνιση μόνο της ημερομηνίας χωρίς το λεκτικό "Ημερομηνία:"
                 tvDate.text = parts[0]
+
+                // Προσθήκη της λέξης "Χρόνος:" πριν από την τιμή (π.χ. Χρόνος: 00:45:12)
                 tvTime.text = "Χρόνος: ${parts[1]}"
-                tvDist.text = "${parts[2]} km"
+
+                // Απόσταση
+                tvDist.text = "Dist: ${parts[2]} km"
+
+                // Ταχύτητα με το πρόθεμα Avg:
                 tvAvg.text = "Avg: ${parts[3]} km/h"
+
+                // Βήματα με το λεκτικό
+                tvSteps.text = "Steps: ${parts[4]}"
             }
 
             // 3. Κουμπί Export (μέσα σε κάθε item)
@@ -85,17 +97,18 @@ class StatsActivity : AppCompatActivity() {
     private fun formatStat(stat: String, index: Int): String {
         val parts = stat.split("\\s+".toRegex()).filter { it.isNotEmpty() }
 
-        // Έστω ότι το stat είναι: "19/02/26 00:45:10 5.20 6.5"
-        return if (parts.size >= 4) {
+        // Τώρα περιμένουμε 5 μέρη: Ημερομηνία, Χρόνος, Απόσταση, Ταχύτητα, Βήματα
+        return if (parts.size >= 5) {
             val date = parts[0]
             val time = parts[1]
             val dist = parts[2]
-            val pace = parts[3]
+            val avgSpeed = parts[3]
+            val steps = parts[4]
 
-            // Χρησιμοποιούμε \n για να αλλάξουμε σειρά εσωτερικά στο TextView
-            "${index}. $date — $dist χλμ\n   Διάρκεια: $time | Ταχύτητα: $pace km/h"
+            // Προσθέτουμε και τα βήματα στην εμφάνιση
+            "${index + 1}. $date — $dist χλμ\n   Διάρκεια: $time | Ταχύτητα: $avgSpeed km/h | Βήματα: $steps"
         } else {
-            "$index. $stat"
+            "${index + 1}. $stat"
         }
     }
 
@@ -140,47 +153,49 @@ class StatsActivity : AppCompatActivity() {
 
     private fun exportToKML(index: Int, stat: String) {
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
+        // ΠΡΟΣΟΧΗ: Πρέπει να σιγουρευτούμε ότι παίρνουμε τα σωστά δεδομένα διαδρομής
+        // αν έχουμε πολλές διαδρομές αποθηκευμένες.
         val routeData = sharedPreferences.getString("route_data", "") ?: ""
 
         val coordinatesList = routeData.trim().split("\n").map { line ->
             val parts = line.trim().split(",")
             if (parts.size >= 2) {
-                "${parts[1].trim()},${parts[0].trim()}"
+                "${parts[1].trim()},${parts[0].trim()}" // Longitude, Latitude
             } else {
                 ""
             }
         }.filter { it.isNotEmpty() }.joinToString(" ")
 
+        // Χρησιμοποιούμε το index+1 για να μην ξεκινάει από το Διαδρομή 0
         val kmlContent = """
-        <?xml version="1.0" encoding="UTF-8"?>
-        <kml xmlns="http://www.opengis.net/kml/2.2">
-            <Document>
-                <name>Διαδρομή $index</name>
-                <Placemark>
-                    <name>Διαδρομή $index</name>
-                    <LineString>
-                        <coordinates>
-                            $coordinatesList
-                        </coordinates>
-                    </LineString>
-                </Placemark>
-            </Document>
-        </kml>
+    <?xml version="1.0" encoding="UTF-8"?>
+    <kml xmlns="http://www.opengis.net/kml/2.2">
+        <Document>
+            <name>Διαδρομή ${index + 1}</name>
+            <Placemark>
+                <name>Στατιστικά: $stat</name>
+                <description>$stat</description>
+                <LineString>
+                    <extrude>1</extrude>
+                    <tessellate>1</tessellate>
+                    <coordinates>$coordinatesList</coordinates>
+                </LineString>
+            </Placemark>
+        </Document>
+    </kml>
     """.trimIndent()
 
-        // 1. Get Date and Distance
-        val dateFormat = SimpleDateFormat("dd-MM-yy", Locale.getDefault())
-        val currentDate = dateFormat.format(Date())
+        // Διαχωρισμός του stat για το όνομα του αρχείου
+        // Το stat πλέον είναι: [0]Ημερ [1]Χρόνος [2]Απόσταση [3]AvgSpeed [4]Βήματα
+        val parts = stat.split("\\s+".toRegex()).filter { it.isNotEmpty() }
 
-        // Extract distance and unit separately
-        val parts = stat.split("\\s+".toRegex())
-        val distance = parts.getOrNull(parts.size - 2)?.trim() ?: "" // Get distance value
-        val unit = parts.lastOrNull()?.trim() ?: "χλμ" // Get unit (e.g., "χλμ")
+        val date = parts.getOrNull(0)?.replace("/", "-") ?: "no_date"
+        val distance = parts.getOrNull(2) ?: "0"
+        val steps = parts.getOrNull(4) ?: "0"
 
-        // 2. Create File Name
-        val fileName = "${currentDate}_${distance}${unit}.kml" // Combine date, distance, and unit
+        // Δημιουργία ονόματος αρχείου που περιλαμβάνει όλα τα βασικά
+        val fileName = "${date}_${distance}km_${steps}steps.kml"
 
-        // 3. Update saveToDocuments Call
         saveToDocuments(fileName, kmlContent, "application/vnd.google-earth.kml+xml")
     }
 
