@@ -509,6 +509,12 @@ class MainActivity : AppCompatActivity() {
             ) != PackageManager.PERMISSION_GRANTED
         ) return
 
+        // 1. ΚΑΘΑΡΙΣΜΟΣ ΧΑΡΤΗ ΚΑΙ ΜΝΗΜΗΣ
+
+        // ΑΥΤΟ ΕΙΝΑΙ ΤΟ ΚΡΙΣΙΜΟ: Καθαρίζουμε τις παλιές συντεταγμένες από τα SharedPreferences
+        val sharedPrefs = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
+        sharedPrefs.edit().remove("route_data").apply()
+
         // 1. ΚΑΘΑΡΙΣΜΟΣ ΧΑΡΤΗ (Ο κώδικας που είχες παραμένει ίδιος)
         kmlRoute?.let { map.overlays.remove(it) }
         kmlBorderRoute?.let { map.overlays.remove(it) }
@@ -532,6 +538,8 @@ class MainActivity : AppCompatActivity() {
         isTracking = true
         totalDistance = 0f
         startTime = System.currentTimeMillis()
+
+        map.invalidate() // Ανανέωση χάρτη για να φύγουν όλα τα παλιά
 
         // 2. ΔΗΜΙΟΥΡΓΙΑ POLYLINES (Για τη νέα διαδρομή)
         borderRoute = Polyline().apply {
