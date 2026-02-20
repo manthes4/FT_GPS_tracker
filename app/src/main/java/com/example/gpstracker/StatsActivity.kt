@@ -153,49 +153,47 @@ class StatsActivity : AppCompatActivity() {
 
     private fun exportToKML(index: Int, stat: String) {
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
-        // ΠΡΟΣΟΧΗ: Πρέπει να σιγουρευτούμε ότι παίρνουμε τα σωστά δεδομένα διαδρομής
-        // αν έχουμε πολλές διαδρομές αποθηκευμένες.
+        // Παίρνουμε τα δεδομένα που σώθηκαν από την MainActivity
         val routeData = sharedPreferences.getString("route_data", "") ?: ""
 
-        val coordinatesList = routeData.trim().split("\n").map { line ->
-            val parts = line.trim().split(",")
-            if (parts.size >= 2) {
-                "${parts[1].trim()},${parts[0].trim()}" // Longitude, Latitude
-            } else {
-                ""
-            }
-        }.filter { it.isNotEmpty() }.joinToString(" ")
+        // 1. ΕΛΕΓΧΟΣ: Αν δεν υπάρχουν συντεταγμένες, ενημέρωσε και βγες
+        if (routeData.isBlank()) {
+            Toast.makeText(this, "Δεν βρέθηκαν γεωγραφικά δεδομένα για εξαγωγή", Toast.LENGTH_SHORT).show()
+            return
+        }
 
-        // Χρησιμοποιούμε το index+1 για να μην ξεκινάει από το Διαδρομή 0
+        // 2. ΕΠΕΞΕΡΓΑΣΙΑ ΣΥΝΤΕΤΑΓΜΕΝΩΝ
+        // Εφόσον είναι ήδη "lon,lat", απλά καθαρίζουμε τις αλλαγές γραμμής σε κενά
+        val coordinatesList = routeData.trim().replace("\n", " ")
+
+        // 3. ΔΗΜΙΟΥΡΓΙΑ ΠΕΡΙΕΧΟΜΕΝΟΥ KML
         val kmlContent = """
-    <?xml version="1.0" encoding="UTF-8"?>
-    <kml xmlns="http://www.opengis.net/kml/2.2">
-        <Document>
-            <name>Διαδρομή ${index + 1}</name>
-            <Placemark>
-                <name>Στατιστικά: $stat</name>
-                <description>$stat</description>
-                <LineString>
-                    <extrude>1</extrude>
-                    <tessellate>1</tessellate>
-                    <coordinates>$coordinatesList</coordinates>
-                </LineString>
-            </Placemark>
-        </Document>
-    </kml>
-    """.trimIndent()
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+    <Document>
+        <name>Διαδρομή ${index + 1}</name>
+        <Placemark>
+            <name>Στατιστικά: $stat</name>
+            <description>$stat</description>
+            <LineString>
+                <extrude>1</extrude>
+                <tessellate>1</tessellate>
+                <coordinates>$coordinatesList</coordinates>
+            </LineString>
+        </Placemark>
+    </Document>
+</kml>
+""".trimIndent()
 
-        // Διαχωρισμός του stat για το όνομα του αρχείου
-        // Το stat πλέον είναι: [0]Ημερ [1]Χρόνος [2]Απόσταση [3]AvgSpeed [4]Βήματα
+        // 4. ΟΝΟΜΑΣΙΑ ΑΡΧΕΙΟΥ
         val parts = stat.split("\\s+".toRegex()).filter { it.isNotEmpty() }
-
         val date = parts.getOrNull(0)?.replace("/", "-") ?: "no_date"
-        val distance = parts.getOrNull(2) ?: "0"
+        val distance = parts.getOrNull(2)?.replace(",", ".") ?: "0"
         val steps = parts.getOrNull(4) ?: "0"
 
-        // Δημιουργία ονόματος αρχείου που περιλαμβάνει όλα τα βασικά
-        val fileName = "${date}_${distance}km_${steps}steps.kml"
+        val fileName = "Route_${date}_${distance}km_${steps}steps.kml"
 
+        // 5. ΑΠΟΘΗΚΕΥΣΗ
         saveToDocuments(fileName, kmlContent, "application/vnd.google-earth.kml+xml")
     }
 

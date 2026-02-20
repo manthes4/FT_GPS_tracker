@@ -666,41 +666,64 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun saveRouteData() {
+        val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
+        val editor = sharedPreferences.edit()
+
+        // Παίρνουμε τα σημεία από τη γραμμή που σχεδιάζεται στον χάρτη
+        val pointsList = route?.actualPoints
+
+        if (pointsList != null && pointsList.isNotEmpty()) {
+            // ΠΡΟΣΟΧΗ: Το KML θέλει Longitude (lng) πρώτα, μετά Latitude (lat)
+            val routeData = pointsList.joinToString("\n") { "${it.longitude},${it.latitude}" }
+            editor.putString("route_data", routeData)
+            editor.apply()
+            Log.d("KML_DEBUG", "Saved ${pointsList.size} points to SharedPreferences")
+        } else {
+            Log.e("KML_DEBUG", "No points found in route overlay!")
+        }
+    }
+
     private fun stopTracking() {
         if (!isTracking) return
+
+        // 1. ΠΡΩΤΑ ΑΠΟ ΟΛΑ: Αποθήκευσε τα γεωγραφικά δεδομένα όσο το 'route' είναι ακόμα ζωντανό
+        saveRouteData()
+
         isTracking = false
-
-        // ΠΡΟΣΘΕΣΕ ΑΥΤΟ ΕΔΩ:
         stepCounterManager.stop()
-        val finalSteps = currentSteps // Η μεταβλητή που ενημερώνεται αυτόματα από το callback
+        val finalSteps = currentSteps
 
-        // 1. Τελικοί Υπολογισμοί
+        // 2. Τελικοί Υπολογισμοί
         val elapsedTime = (System.currentTimeMillis() - startTime) / 1000
         val distanceInKm = totalDistance / 1000.0
         val formattedTime = formatTime(elapsedTime)
         val formattedDistance = String.format("%.2f", distanceInKm)
-
-        // Υπολογισμός Μέσης Ταχύτητας για το Save
         val finalAvgSpeed = if (elapsedTime > 0) (distanceInKm / elapsedTime) * 3600 else 0.0
         val formattedAvgSpeed = String.format("%.1f", finalAvgSpeed)
 
-        // 2. Αποθήκευση - ΠΡΟΣΕΞΕ ΤΗΝ ΑΛΛΑΓΗ ΣΤΗ saveStats
+        // 3. Αποθήκευση στατιστικών
         saveStats(formattedTime, formattedDistance, formattedAvgSpeed, finalSteps.toString())
 
-        // 3. Σταμάτημα Service & UI
+        // 4. Σταμάτημα Service & UI
         val intent = Intent(this, LocationTrackingService::class.java)
         stopService(intent)
         try { unregisterReceiver(locationReceiver) } catch (e: Exception) {}
         handler.removeCallbacks(updateStatsRunnable)
 
-        // 4. Καθαρισμός UI πεδίων
+        // 5. Καθαρισμός UI (Αν θες να μηδενίζονται αμέσως)
         tvDistance.text = "0.00 km"
         tvTime.text = "00:00:00"
         tvCurrentSpeed.text = "0.0"
         tvAvgSpeed.text = "0.0"
+        // Μην ξεχάσεις τα βήματα!
+        tvSteps.text = "0"
 
         map.invalidate()
-        showCustomToast("Αποθηκεύτηκε: $formattedDistance km με $formattedAvgSpeed km/h")
+        showCustomToast("Αποθηκεύτηκε: $formattedDistance km")
+
+        // ΕΔΩ: Κάλεσε τη συνάρτηση που δημιουργεί το ΦΥΣΙΚΟ αρχείο .kml στη μνήμη
+        // exportToKmlFile()
     }
 
     private fun addPoiToMap(lat: Double, lon: Double, amenity: String, name: String) {
@@ -754,20 +777,6 @@ class MainActivity : AppCompatActivity() {
         // Προσθέτουμε και τα βήματα στο τέλος του String (διαχωρισμένα με κενό)
         val newStat = "$date $time $distance $avgSpeed $steps\n"
         sharedPreferences.edit().putString("stats", stats + newStat).apply()
-    }
-
-    private fun saveRouteData() {
-        val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
-        val editor = sharedPreferences.edit()
-
-        // Χρησιμοποιούμε actualPoints αντί για points για σιγουριά στην osmdroid
-        val pointsList = route?.actualPoints
-
-        if (pointsList != null && pointsList.isNotEmpty()) {
-            val routeData = pointsList.joinToString("\n") { "${it.latitude},${it.longitude}" }
-            editor.putString("route_data", routeData)
-            editor.apply()
-        }
     }
 
     private fun registerGnssCallback() {
@@ -928,8 +937,8 @@ class MainActivity : AppCompatActivity() {
             // Σειρά 2: Απόσταση & Χρόνος
             // Χρησιμοποιούμε &nbsp; για οριζόντιο κενό και ένα μόνο <br/> για αλλαγή γραμμής
 
-            "<b><big>📅 $date &nbsp;&nbsp;&nbsp; 👣 $steps βήματα</big></b><br/>" +
-                    "<b><big>📍 $dist &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⏱️ $time</big></b>"
+            "<b><big>📅 $date &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 👣 $steps βήματα</big></b><br/>" +
+                    "<b><big>📍 $dist &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⏱️ $time</big></b>"
 
         } catch (e: Exception) {
             "<b><big>Πληροφορίες διαδρομής</big></b>"
