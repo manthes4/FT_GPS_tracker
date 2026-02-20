@@ -67,33 +67,28 @@ class LocationTrackingService : Service() {
     }
 
     private val locationListener = LocationListener { location ->
+
         if (location.accuracy > 20) return@LocationListener
 
-        // Υπολογίζουμε την ταχύτητα ΕΞΩ από το check του previousLocation
-        // ώστε να ενημερώνεται η οθόνη ακόμα και στην πρώτη λήψη σήματος
         val currentSpeedKmH = location.speed * 3.6f
 
         if (previousLocation != null) {
             val distance = previousLocation!!.distanceTo(location)
-            if (distance < 2.5) {
-                // Ακόμα και αν δεν μετακινηθήκαμε αρκετά για να μετρήσουμε απόσταση,
-                // στέλνουμε την ταχύτητα (που μπορεί να είναι 0) για να ενημερωθεί το UI
-                val intent = Intent("LocationUpdate")
-                intent.putExtra("current_speed", currentSpeedKmH)
-                intent.putExtra("distance", totalDistance) // Στέλνουμε την παλιά απόσταση
-                sendBroadcast(intent)
-                return@LocationListener
+            if (distance >= 2.5f) {
+                totalDistance += distance
             }
-
-            totalDistance += distance
-
-            val intent = Intent("LocationUpdate")
-            intent.putExtra("lat", location.latitude)
-            intent.putExtra("lng", location.longitude)
-            intent.putExtra("distance", totalDistance)
-            intent.putExtra("current_speed", currentSpeedKmH)
-            sendBroadcast(intent)
         }
+
+        val intent = Intent("LocationUpdate").apply {
+            setPackage(packageName)
+            putExtra("lat", location.latitude)
+            putExtra("lng", location.longitude)
+            putExtra("distance", totalDistance)
+            putExtra("current_speed", currentSpeedKmH)
+        }
+
+        sendBroadcast(intent)
+
         previousLocation = location
     }
 
