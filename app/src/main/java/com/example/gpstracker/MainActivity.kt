@@ -69,6 +69,8 @@ import org.osmdroid.bonuspack.routing.OSRMRoadManager
 import org.osmdroid.bonuspack.routing.RoadManager
 import org.osmdroid.bonuspack.routing.Road
 import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.overlay.FolderOverlay
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Overlay
@@ -170,7 +172,25 @@ class MainActivity : AppCompatActivity() {
         tvGrade = findViewById(R.id.tv_grade)
 
         map.setMultiTouchControls(true)
-        map.setTileSource(TileSourceFactory.MAPNIK)
+        // 1. Ορίζουμε τον "παροχέα" Google Tiles
+        val googleHybrid = object : OnlineTileSourceBase(
+            "GoogleHybrid", 0, 20, 256, ".png",
+            arrayOf("https://mt1.google.com/vt/lyrs=y&") // Το lyrs=y είναι για Hybrid (Δορυφόρος + Δρόμοι)
+        ) {
+            override fun getTileURLString(pTileIndex: Long): String {
+                // Χτίζουμε το URL χειροκίνητα με τη σωστή σειρά παραμέτρων της Google
+                val zoom = MapTileIndex.getZoom(pTileIndex)
+                val x = MapTileIndex.getX(pTileIndex)
+                val y = MapTileIndex.getY(pTileIndex)
+                return "${baseUrl}x=$x&y=$y&z=$zoom"
+            }
+        }
+
+// 2. ΠΟΛΥ ΣΗΜΑΝΤΙΚΟ: Ορισμός User Agent (χωρίς αυτό η Google μπορεί να επιστρέψει κενό)
+        org.osmdroid.config.Configuration.getInstance().userAgentValue = packageName
+
+// 3. Εφαρμογή στον χάρτη
+        map.setTileSource(googleHybrid)
         map.isTilesScaledToDpi = false
 
         // Enable Rotation Gesture Overlay
