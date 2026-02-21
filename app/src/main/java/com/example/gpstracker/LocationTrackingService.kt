@@ -142,6 +142,7 @@ class LocationTrackingService : Service() {
             putExtra("current_speed", currentSpeedKmH)
             putExtra("accuracy", location.accuracy)
             putExtra("grade", currentGrade)
+            putExtra("bearing", location.bearing)
         }
         sendBroadcast(intent)
 

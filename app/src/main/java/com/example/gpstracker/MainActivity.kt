@@ -9,7 +9,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Color
+import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.location.Geocoder
@@ -44,12 +44,10 @@ import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.compass.CompassOverlay
 import org.osmdroid.views.overlay.gestures.RotationGestureOverlay
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import org.osmdroid.views.overlay.Marker
-import android.graphics.Paint
 import org.xmlpull.v1.XmlPullParser
 import java.io.IOException
 import java.net.URL
@@ -76,6 +74,10 @@ import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Overlay
 import java.io.File
 import java.net.URLEncoder
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import org.osmdroid.views.overlay.Polyline
 
 private var currentSearchMarker: Marker? = null
 
@@ -83,6 +85,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var map: MapView
     private var currentSpeed: Float = 0f
+    private var currentLocationMarker: Marker? = null
 
     private lateinit var mapEventsOverlay: MapEventsOverlay
 
@@ -577,25 +580,37 @@ class MainActivity : AppCompatActivity() {
         currentSpeed = 0f // Μηδένισε και την ταχύτητα για σιγουριά
         startTime = System.currentTimeMillis()
 
+// ΚΑΘΑΡΙΣΜΟΣ ΤΟΥ ΖΩΝΤΑΝΟΥ ΒΕΛΟΥΣ
+        currentLocationMarker?.let { map.overlays.remove(it) }
+        currentLocationMarker = null
+
         tvGrade.text = "0.0" // μηδενισμος κλισης
         tvGrade.setTextColor(Color.WHITE)
         tvDistance.text = "0.00 km"
         tvCurrentSpeed.text = "0.0"
 
+        // Μέσα στη startTracking() σου, εκεί που καθαρίζεις τα overlays:
+        currentLocationMarker?.let { map.overlays.remove(it) }
+        currentLocationMarker = null
+
         map.invalidate() // Ανανέωση χάρτη για να φύγουν όλα τα παλιά
 
-        // 2. ΔΗΜΙΟΥΡΓΙΑ POLYLINES (Για τη νέα διαδρομή)
+        // 2. ΔΗΜΙΟΥΡΓΙΑ POLYLINES (Glow Style)
         borderRoute = Polyline().apply {
-            outlinePaint.color = android.graphics.Color.BLACK
-            outlinePaint.strokeWidth = 15.0f
+            // Εξωτερική λάμψη (Glow) - Ημιδιάφανο μπλε
+            outlinePaint.color = Color.parseColor("#FAF6F5") // 50% transparency Cyan
+            outlinePaint.strokeWidth = 18.0f // Λίγο πιο παχύ για το εφέ λάμψης
             outlinePaint.strokeJoin = Paint.Join.ROUND
             outlinePaint.strokeCap = Paint.Cap.ROUND
             outlinePaint.isAntiAlias = true
+            // Προσθήκη Blur effect αν θες ακόμα πιο μαλακό αποτέλεσμα (προαιρετικό)
+            outlinePaint.maskFilter = BlurMaskFilter(10f, BlurMaskFilter.Blur.NORMAL)
         }
 
         route = Polyline().apply {
-            outlinePaint.color = android.graphics.Color.RED
-            outlinePaint.strokeWidth = 10.0f
+            // Η κεντρική γραμμή - Έντονο Cyan/Λευκό-Μπλε
+            outlinePaint.color = Color.parseColor("#F26C13")
+            outlinePaint.strokeWidth = 8.0f // Πιο λεπτό για να φαίνεται το glow από κάτω
             outlinePaint.strokeJoin = Paint.Join.ROUND
             outlinePaint.strokeCap = Paint.Cap.ROUND
             outlinePaint.isAntiAlias = true
@@ -603,6 +618,8 @@ class MainActivity : AppCompatActivity() {
 
         map.overlays.add(borderRoute)
         map.overlays.add(route)
+
+        //χρειαζεται για τον καθαρισμο του χαρτη
         map.invalidate() // Ανανέωση για να φανεί ο άδειος χάρτης
 
         // 3. ΕΚΚΙΝΗΣΗ SERVICE
@@ -667,6 +684,14 @@ class MainActivity : AppCompatActivity() {
             // 1. ΛΗΨΗ ΤΗΣ ΚΛΙΣΗΣ
             val grade = intent?.getDoubleExtra("grade", 0.0) ?: 0.0
 
+// --- ΠΡΟΣΘΕΣΕ ΑΥΤΑ ΤΑ ΤΡΙΑ ---
+            val bearing = intent?.getFloatExtra("bearing", 0f) ?: 0f
+            val newPoint = GeoPoint(lat, lng)
+
+// Ενημέρωση του βέλους στην κορυφή της γραμμής
+            updateCurrentLocationMarker(newPoint, bearing)
+            totalDistance += distance                              // Ενημέρωση συνολικής απόστασης
+
             // Ενημέρωση της απόστασης στην Activity
             this@MainActivity.totalDistance = distance
 
@@ -710,20 +735,26 @@ class MainActivity : AppCompatActivity() {
                 map.overlays.add(startMarker)
             }
 
-            // ΕΝΗΜΕΡΩΣΗ ΤΡΕΧΟΝΤΟΣ MARKER (ΑΝΘΡΩΠΑΚΙ)
-            if (locationMarker == null) {
-                locationMarker = Marker(map).apply {
-                    position = geoPoint
-                    icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.baseline_run_circle_24)
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                }
-                map.overlays.add(locationMarker)
-            } else {
-                locationMarker?.position = geoPoint
-            }
-
             map.invalidate()
         }
+    }
+
+    private fun updateCurrentLocationMarker(point: GeoPoint, bearing: Float) {
+        // Αν ο marker δεν έχει δημιουργηθεί ακόμα, τον φτιάχνουμε
+        if (currentLocationMarker == null) {
+            currentLocationMarker = Marker(map).apply {
+                icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.arrow_vector)
+                icon?.setTint(Color.parseColor("#F55302")) // Electric Blue
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                infoWindow = null
+                map.overlays.add(this)
+            }
+        }
+
+        // Ενημερώνουμε τη θέση και την κλίση του ίδιου marker
+        currentLocationMarker?.position = point
+        currentLocationMarker?.rotation = -bearing
+        map.invalidate()
     }
 
     private fun getLastKnownLocation(): Location? {
@@ -1193,17 +1224,18 @@ class MainActivity : AppCompatActivity() {
                 // Δημιουργία περιγράμματος Polyline για το KML route
                 kmlBorderRoute = Polyline().apply {
                     outlinePaint.isAntiAlias = true
-                    outlinePaint.color = android.graphics.Color.BLACK
-                    outlinePaint.strokeWidth = 15.0f
+                    outlinePaint.color = android.graphics.Color.WHITE
+                    outlinePaint.strokeWidth = 18.0f
                     outlinePaint.strokeJoin = Paint.Join.ROUND
                     outlinePaint.strokeCap = Paint.Cap.ROUND
+                    outlinePaint.maskFilter = BlurMaskFilter(10f, BlurMaskFilter.Blur.NORMAL)
                 }
 
                 // Δημιουργία κύριας Polyline για τη διαδρομή KML
                 kmlRoute = Polyline().apply {
                     outlinePaint.isAntiAlias = true
                     outlinePaint.color = android.graphics.Color.YELLOW
-                    outlinePaint.strokeWidth = 10.0f
+                    outlinePaint.strokeWidth = 8.0f
                     outlinePaint.strokeJoin = Paint.Join.ROUND
                     outlinePaint.strokeCap = Paint.Cap.ROUND
                 }
