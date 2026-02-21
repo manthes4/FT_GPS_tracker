@@ -96,6 +96,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvAccuracy: TextView // Πρόσθεσε αυτό
     private lateinit var tvGrade: TextView
 
+    private lateinit var tvCurrentGrade: TextView // κλιση εδαφους σε συγκεκριμενο σημειο
+
     private lateinit var tvSteps: TextView     // Το UI στοιχείο
     private var currentSteps: Int = 0          // Τα βήματα της τρέχουσας διαδρομής
     private var initialSteps: Int = 0          // Η αρχική τιμή του αισθητήρα
@@ -173,6 +175,7 @@ class MainActivity : AppCompatActivity() {
         tvSteps = findViewById(R.id.tv_steps) // ΑΥΤΟ ΛΕΙΠΕΙ ΚΑΙ ΕΙΝΑΙ ΚΡΙΣΙΜΟ
         tvAccuracy = findViewById(R.id.tv_accuracy) // Πρόσθεσε αυτό
         tvGrade = findViewById(R.id.tv_grade)
+        tvCurrentGrade = findViewById(R.id.tvCurrentGrade) // Σύνδεση με το ID του XML
 
         map.setMultiTouchControls(true)
         // 1. Ορίζουμε τον "παροχέα" Google Tiles
@@ -640,6 +643,7 @@ class MainActivity : AppCompatActivity() {
                 if (isTracking) {
                     val currentTime = System.currentTimeMillis()
                     tvAccuracy.visibility = View.VISIBLE // Εμφάνιση
+                    tvCurrentGrade.visibility = View.VISIBLE // <--- ΠΡΟΣΘΕΣΕ ΑΥΤΟ ΕΔΩ
                     // Ορίζουμε το elapsedTime εδώ για να το αναγνωρίζει παρακάτω
                     val elapsedTime = (currentTime - startTime) / 1000
 
@@ -692,15 +696,27 @@ class MainActivity : AppCompatActivity() {
             updateCurrentLocationMarker(newPoint, bearing)
             totalDistance += distance                              // Ενημέρωση συνολικής απόστασης
 
-            // Ενημέρωση της απόστασης στην Activity
-            this@MainActivity.totalDistance = distance
-
             // Ενημέρωση Accuracy UI
             tvAccuracy.text = "Accuracy: ${String.format("%.1f", accuracy)}m"
             if (accuracy > 20) {
                 tvAccuracy.setTextColor(Color.RED)
             } else {
                 tvAccuracy.setTextColor(Color.parseColor("#006400")) // Σκούρο πράσινο
+            }
+
+            // --- ΕΔΩ ΠΡΟΣΘΕΤΟΥΜΕ ΤΟ ΝΕΟ ΠΛΑΙΣΙΟ ΠΑΝΩ ΣΤΟΝ ΧΑΡΤΗ ---
+            tvCurrentGrade.visibility = View.VISIBLE
+            if (currentSpeed < 1.0f) {
+                tvCurrentGrade.text = "Grade: 0.0%"
+                tvCurrentGrade.setTextColor(Color.BLACK)
+            } else {
+                tvCurrentGrade.text = "Grade: ${String.format("%.1f", grade)}%"
+                // Χρώματα για το λευκό πλαίσιο
+                when {
+                    grade > 1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#D32F2F"))
+                    grade < -1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#388E3C"))
+                    else -> tvCurrentGrade.setTextColor(Color.BLACK)
+                }
             }
 
             // 2. ΕΝΗΜΕΡΩΣΗ GRADE UI (ΚΛΙΣΗ)
