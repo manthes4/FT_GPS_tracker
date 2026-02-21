@@ -23,6 +23,11 @@ class LocationTrackingService : Service() {
     private var previousLocation: Location? = null
     private var totalDistance: Float = 0f
 
+    //για τον υπολογισμο της κλισης του εδαφους
+    private var lastAltitude: Double? = null
+    private var lastAltitudeLocation: Location? = null
+    private var currentGrade: Double = 0.0
+
     override fun onCreate() {
         super.onCreate()
         startForegroundService()
@@ -72,6 +77,27 @@ class LocationTrackingService : Service() {
 
         val currentSpeedKmH = location.speed * 3.6f
 
+        // --- ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ (Grade) ---
+        if (lastAltitudeLocation == null) {
+            lastAltitudeLocation = location
+            lastAltitude = location.altitude
+        }
+
+        val distanceForGrade = lastAltitudeLocation!!.distanceTo(location)
+
+        // Υπολογισμός κάθε 30 μέτρα για αξιοπιστία
+        if (distanceForGrade >= 30f && location.accuracy < 10f) {
+            val heightDelta = location.altitude - lastAltitude!!
+            currentGrade = (heightDelta / distanceForGrade) * 100
+
+            // Όριο για ακραίες τιμές
+            if (currentGrade > 25.0) currentGrade = 25.0
+            if (currentGrade < -25.0) currentGrade = -25.0
+
+            lastAltitude = location.altitude
+            lastAltitudeLocation = location
+        }
+
         if (previousLocation != null) {
             val distance = previousLocation!!.distanceTo(location)
 
@@ -90,6 +116,7 @@ class LocationTrackingService : Service() {
             putExtra("distance", totalDistance)
             putExtra("current_speed", currentSpeedKmH)
             putExtra("accuracy", location.accuracy) // ΕΛΕΓΞΕ ΑΥΤΗ ΤΗ ΓΡΑΜΜΗ
+            putExtra("grade", currentGrade) // Κλιση εδαφους
         }
         sendBroadcast(intent)
 

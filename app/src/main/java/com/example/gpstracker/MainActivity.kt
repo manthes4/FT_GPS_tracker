@@ -86,6 +86,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvCurrentSpeed: TextView
     private lateinit var tvAvgSpeed: TextView
     private lateinit var tvAccuracy: TextView // Πρόσθεσε αυτό
+    private lateinit var tvGrade: TextView
 
     private lateinit var tvSteps: TextView     // Το UI στοιχείο
     private var currentSteps: Int = 0          // Τα βήματα της τρέχουσας διαδρομής
@@ -163,6 +164,7 @@ class MainActivity : AppCompatActivity() {
         tvAvgSpeed = findViewById(R.id.tv_avg_speed)
         tvSteps = findViewById(R.id.tv_steps) // ΑΥΤΟ ΛΕΙΠΕΙ ΚΑΙ ΕΙΝΑΙ ΚΡΙΣΙΜΟ
         tvAccuracy = findViewById(R.id.tv_accuracy) // Πρόσθεσε αυτό
+        tvGrade = findViewById(R.id.tv_grade)
 
         map.setMultiTouchControls(true)
         map.setTileSource(TileSourceFactory.MAPNIK)
@@ -541,6 +543,9 @@ class MainActivity : AppCompatActivity() {
         totalDistance = 0f
         startTime = System.currentTimeMillis()
 
+        tvGrade.text = "0.0" // μηδενισμος κλισης
+        tvGrade.setTextColor(Color.WHITE)
+
         map.invalidate() // Ανανέωση χάρτη για να φύγουν όλα τα παλιά
 
         // 2. ΔΗΜΙΟΥΡΓΙΑ POLYLINES (Για τη νέα διαδρομή)
@@ -622,16 +627,34 @@ class MainActivity : AppCompatActivity() {
             val distance = intent?.getFloatExtra("distance", 0f) ?: 0f
             currentSpeed = intent?.getFloatExtra("current_speed", 0f) ?: 0f
             val accuracy = intent?.getFloatExtra("accuracy", 0f) ?: 0f // Λήψη accuracy
+            // 1. ΛΗΨΗ ΤΗΣ ΚΛΙΣΗΣ
+            val grade = intent?.getDoubleExtra("grade", 0.0) ?: 0.0
 
             // Ενημέρωση της απόστασης στην Activity
             this@MainActivity.totalDistance = distance
 
-            // Πρόσθεσε αυτό για να γράφει την τιμή και να αλλάζει χρώμα
+            // Ενημέρωση Accuracy UI
             tvAccuracy.text = "Accuracy: ${String.format("%.1f", accuracy)}m"
             if (accuracy > 20) {
                 tvAccuracy.setTextColor(Color.RED)
             } else {
                 tvAccuracy.setTextColor(Color.parseColor("#006400")) // Σκούρο πράσινο
+            }
+
+            // 2. ΕΝΗΜΕΡΩΣΗ GRADE UI (ΚΛΙΣΗ)
+            if (grade < 0.5 && grade > -0.5) {
+                tvGrade.text = "0.0"
+            } else {
+                tvGrade.text = String.format("%.1f", grade)
+            }
+
+            // Αλλαγή χρώματος ανάλογα με την κλίση
+            if (grade > 1.0) {
+                tvGrade.setTextColor(Color.parseColor("#FF5252")) // Κόκκινο για ανηφόρα
+            } else if (grade < -1.0) {
+                tvGrade.setTextColor(Color.parseColor("#64DD17")) // Πράσινο για κατηφόρα
+            } else {
+                tvGrade.setTextColor(Color.WHITE) // Λευκό για ευθεία
             }
 
             val geoPoint = GeoPoint(lat, lng)
@@ -731,6 +754,12 @@ class MainActivity : AppCompatActivity() {
         tvAvgSpeed.text = "0.0"
         // Μην ξεχάσεις τα βήματα!
         tvSteps.text = "0"
+
+        tvGrade.text = "0.0"
+        tvGrade.setTextColor(Color.WHITE)
+
+        // Επίσης καλό είναι να μηδενίσεις το Accuracy αν θέλεις
+        tvAccuracy.visibility = View.GONE
 
         map.invalidate()
         showCustomToast("Αποθηκεύτηκε: $formattedDistance km")

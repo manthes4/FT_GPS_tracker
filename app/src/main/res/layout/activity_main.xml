@@ -46,7 +46,7 @@
         android:elevation="4dp"
         android:orientation="horizontal"
         android:padding="12dp"
-        android:weightSum="4"
+        android:weightSum="5"
         app:layout_constraintBottom_toTopOf="@+id/button_container"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
@@ -88,8 +88,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="SPEED"
-                android:textColor="#64DD17"
-                android:textSize="10sp"
+                android:textColor="#03DCF4"
+                android:textSize="11sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -121,7 +121,7 @@
                 android:layout_height="wrap_content"
                 android:text="AVG"
                 android:textColor="#00B8D4"
-                android:textSize="10sp"
+                android:textSize="11sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -141,6 +141,39 @@
                 android:textSize="10sp" />
         </LinearLayout>
 
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ΚΛΙΣΗ"
+                android:textColor="#07F011"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tv_grade"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0.0"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="%"
+                android:textColor="#FFFFFF"
+                android:textSize="10sp" />
+        </LinearLayout>
+
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -153,7 +186,7 @@
                 android:layout_height="wrap_content"
                 android:text="STEPS"
                 android:textColor="#FFAB00"
-                android:textSize="10sp"
+                android:textSize="11sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -168,10 +201,11 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="steps"
+                android:text="βήματα"
                 android:textColor="#FFFFFF"
                 android:textSize="10sp" />
         </LinearLayout>
+
     </LinearLayout>
 
     <LinearLayout
