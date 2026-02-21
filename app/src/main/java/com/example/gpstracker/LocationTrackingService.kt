@@ -67,18 +67,22 @@ class LocationTrackingService : Service() {
     }
 
     private val locationListener = LocationListener { location ->
-
+        // 1. Έλεγχος ακρίβειας (όπως το είχες)
         if (location.accuracy > 20) return@LocationListener
 
         val currentSpeedKmH = location.speed * 3.6f
 
         if (previousLocation != null) {
             val distance = previousLocation!!.distanceTo(location)
-            if (distance >= 2.5f) {
+
+            // 2. ΔΙΠΛΟΣ ΕΛΕΓΧΟΣ:
+            // Πρέπει ΚΑΙ η απόσταση να είναι > 2.5m ΚΑΙ η ταχύτητα > 1.0km/h
+            if (distance >= 2.5f && currentSpeedKmH > 1.0f) {
                 totalDistance += distance
             }
         }
 
+        // 3. Στέλνουμε ΠΑΝΤΑ το Intent για να βλέπουμε την ταχύτητα 0.0 στην οθόνη
         val intent = Intent("LocationUpdate").apply {
             setPackage(packageName)
             putExtra("lat", location.latitude)
@@ -86,10 +90,13 @@ class LocationTrackingService : Service() {
             putExtra("distance", totalDistance)
             putExtra("current_speed", currentSpeedKmH)
         }
-
         sendBroadcast(intent)
 
-        previousLocation = location
+        // 4. Ενημερώνουμε την προηγούμενη θέση μόνο αν η ταχύτητα ήταν επαρκής,
+        // ώστε να μην "σέρνουμε" το σφάλμα του drift.
+        if (currentSpeedKmH > 1.0f) {
+            previousLocation = location
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
