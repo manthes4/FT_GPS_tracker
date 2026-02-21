@@ -89,6 +89,7 @@ class LocationTrackingService : Service() {
             putExtra("lng", location.longitude)
             putExtra("distance", totalDistance)
             putExtra("current_speed", currentSpeedKmH)
+            putExtra("accuracy", location.accuracy) // ΕΛΕΓΞΕ ΑΥΤΗ ΤΗ ΓΡΑΜΜΗ
         }
         sendBroadcast(intent)
 

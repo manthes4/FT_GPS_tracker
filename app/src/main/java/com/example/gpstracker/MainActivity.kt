@@ -85,6 +85,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvTime: TextView
     private lateinit var tvCurrentSpeed: TextView
     private lateinit var tvAvgSpeed: TextView
+    private lateinit var tvAccuracy: TextView // Πρόσθεσε αυτό
 
     private lateinit var tvSteps: TextView     // Το UI στοιχείο
     private var currentSteps: Int = 0          // Τα βήματα της τρέχουσας διαδρομής
@@ -161,6 +162,7 @@ class MainActivity : AppCompatActivity() {
         tvCurrentSpeed = findViewById(R.id.tv_current_speed)
         tvAvgSpeed = findViewById(R.id.tv_avg_speed)
         tvSteps = findViewById(R.id.tv_steps) // ΑΥΤΟ ΛΕΙΠΕΙ ΚΑΙ ΕΙΝΑΙ ΚΡΙΣΙΜΟ
+        tvAccuracy = findViewById(R.id.tv_accuracy) // Πρόσθεσε αυτό
 
         map.setMultiTouchControls(true)
         map.setTileSource(TileSourceFactory.MAPNIK)
@@ -578,6 +580,7 @@ class MainActivity : AppCompatActivity() {
             override fun run() {
                 if (isTracking) {
                     val currentTime = System.currentTimeMillis()
+                    tvAccuracy.visibility = View.VISIBLE // Εμφάνιση
                     // Ορίζουμε το elapsedTime εδώ για να το αναγνωρίζει παρακάτω
                     val elapsedTime = (currentTime - startTime) / 1000
 
@@ -618,9 +621,18 @@ class MainActivity : AppCompatActivity() {
             val lng = intent?.getDoubleExtra("lng", 0.0) ?: 0.0
             val distance = intent?.getFloatExtra("distance", 0f) ?: 0f
             currentSpeed = intent?.getFloatExtra("current_speed", 0f) ?: 0f
+            val accuracy = intent?.getFloatExtra("accuracy", 0f) ?: 0f // Λήψη accuracy
 
             // Ενημέρωση της απόστασης στην Activity
             this@MainActivity.totalDistance = distance
+
+            // Πρόσθεσε αυτό για να γράφει την τιμή και να αλλάζει χρώμα
+            tvAccuracy.text = "Accuracy: ${String.format("%.1f", accuracy)}m"
+            if (accuracy > 20) {
+                tvAccuracy.setTextColor(Color.RED)
+            } else {
+                tvAccuracy.setTextColor(Color.parseColor("#006400")) // Σκούρο πράσινο
+            }
 
             val geoPoint = GeoPoint(lat, lng)
 
@@ -686,6 +698,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun stopTracking() {
         if (!isTracking) return
+        tvAccuracy.visibility = View.GONE // Απόκρυψη
 
         // 1. ΠΡΩΤΑ ΑΠΟ ΟΛΑ: Αποθήκευσε τα γεωγραφικά δεδομένα όσο το 'route' είναι ακόμα ζωντανό
         saveRouteData()
