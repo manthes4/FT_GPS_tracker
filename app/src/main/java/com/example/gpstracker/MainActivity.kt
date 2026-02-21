@@ -69,6 +69,7 @@ import org.osmdroid.bonuspack.routing.OSRMRoadManager
 import org.osmdroid.bonuspack.routing.RoadManager
 import org.osmdroid.bonuspack.routing.Road
 import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.views.overlay.FolderOverlay
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Overlay
 import java.io.File
@@ -80,6 +81,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var map: MapView
     private var currentSpeed: Float = 0f
+
+    private lateinit var mapEventsOverlay: MapEventsOverlay
 
     private lateinit var tvDistance: TextView
     private lateinit var tvTime: TextView
@@ -519,6 +522,16 @@ class MainActivity : AppCompatActivity() {
         val sharedPrefs = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         sharedPrefs.edit().remove("route_data").apply()
 
+        // --- ΚΛΕΙΣΙΜΟ ΟΛΩΝ ΤΩΝ INFO WINDOWS ---
+        // Κλείνει τα InfoWindows όλων των markers που υπάρχουν στον χάρτη
+        for (overlay in map.overlays) {
+            if (overlay is Marker) {
+                overlay.closeInfoWindow()
+            }
+        }
+
+        map.overlays.removeAll { it is Marker || it is Polyline || it is FolderOverlay }
+
         // 1. ΚΑΘΑΡΙΣΜΟΣ ΧΑΡΤΗ (Ο κώδικας που είχες παραμένει ίδιος)
         kmlRoute?.let { map.overlays.remove(it) }
         kmlBorderRoute?.let { map.overlays.remove(it) }
@@ -570,6 +583,7 @@ class MainActivity : AppCompatActivity() {
 
         map.overlays.add(borderRoute)
         map.overlays.add(route)
+        map.invalidate() // Ανανέωση για να φανεί ο άδειος χάρτης
 
         // 3. ΕΚΚΙΝΗΣΗ SERVICE
         val intent = Intent(this, LocationTrackingService::class.java)
