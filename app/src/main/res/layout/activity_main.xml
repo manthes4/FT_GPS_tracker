@@ -20,42 +20,50 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <TextView
-        android:id="@+id/tvCurrentGrade"
+    <androidx.constraintlayout.widget.Barrier
+        android:id="@+id/barrier_bottom"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Grade: 0.0%"
-        android:textColor="#000000"
-        android:textSize="11sp"
-        android:textStyle="bold"
-        android:background="#B3FFFFFF"
-        android:padding="4dp"
-        android:elevation="10dp"
-        android:visibility="gone"
-        android:layout_marginEnd="12dp"
-        android:layout_marginBottom="4dp"
-        app:layout_constraintBottom_toTopOf="@+id/tv_accuracy"
-        app:layout_constraintEnd_toEndOf="parent" />
+        app:barrierDirection="top"
+        app:constraint_referenced_ids="stats_container,button_container" />
 
     <TextView
         android:id="@+id/tv_accuracy"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Accuracy: --"
+        android:text="Accuracy GPS: --"
         android:textColor="#FF0000"
-        android:textSize="11sp"
+        android:textSize="12sp"
         android:textStyle="bold"
         android:background="#B3FFFFFF"
         android:padding="4dp"
         android:elevation="10dp"
         android:visibility="gone"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="8dp"
+        app:layout_constraintBottom_toTopOf="@+id/barrier_bottom"
+        app:layout_constraintEnd_toStartOf="@+id/tvCurrentGrade" />
+
+    <TextView
+        android:id="@+id/tvCurrentGrade"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Κλίση σημείου: 0.0%"
+        android:textColor="#000000"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:background="#B3FFFFFF"
+        android:padding="4dp"
+        android:elevation="10dp"
+        android:visibility="visible"
         android:layout_marginEnd="12dp"
         android:layout_marginBottom="8dp"
-        app:layout_constraintBottom_toTopOf="@+id/stats_container"
+        app:layout_constraintBottom_toTopOf="@+id/barrier_bottom"
         app:layout_constraintEnd_toEndOf="parent" />
 
     <LinearLayout
         android:id="@+id/stats_container"
+        android:visibility="gone"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_margin="4dp"

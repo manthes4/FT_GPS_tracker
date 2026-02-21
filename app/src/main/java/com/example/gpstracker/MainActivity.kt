@@ -77,6 +77,7 @@ import java.net.URLEncoder
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.widget.LinearLayout
 import org.osmdroid.views.overlay.Polyline
 
 private var currentSearchMarker: Marker? = null
@@ -86,6 +87,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var map: MapView
     private var currentSpeed: Float = 0f
     private var currentLocationMarker: Marker? = null
+    private lateinit var statsContainer: LinearLayout // Δήλωση στην κορυφή
 
     private lateinit var mapEventsOverlay: MapEventsOverlay
 
@@ -176,6 +178,7 @@ class MainActivity : AppCompatActivity() {
         tvAccuracy = findViewById(R.id.tv_accuracy) // Πρόσθεσε αυτό
         tvGrade = findViewById(R.id.tv_grade)
         tvCurrentGrade = findViewById(R.id.tvCurrentGrade) // Σύνδεση με το ID του XML
+        statsContainer = findViewById(R.id.stats_container)
 
         map.setMultiTouchControls(true)
         // 1. Ορίζουμε τον "παροχέα" Google Tiles
@@ -658,6 +661,7 @@ class MainActivity : AppCompatActivity() {
                     tvTime.text = formatTime(elapsedTime)
                     tvCurrentSpeed.text = String.format("%.1f", currentSpeed)
                     tvAvgSpeed.text = String.format("%.1f", avgSpeed)
+                    statsContainer.visibility = View.VISIBLE // Εμφάνιση του πάνελ
 
                     // ΠΡΟΣΟΧΗ: Διαγράψαμε το statsDisplay.text γιατί πλέον
                     // χρησιμοποιούμε τα tvDistance, tvTime κτλ.
@@ -697,7 +701,7 @@ class MainActivity : AppCompatActivity() {
             totalDistance += distance                              // Ενημέρωση συνολικής απόστασης
 
             // Ενημέρωση Accuracy UI
-            tvAccuracy.text = "Accuracy: ${String.format("%.1f", accuracy)}m"
+            tvAccuracy.text = "Accuracy GPS: ${String.format("%.1f", accuracy)}m"
             if (accuracy > 20) {
                 tvAccuracy.setTextColor(Color.RED)
             } else {
@@ -707,10 +711,10 @@ class MainActivity : AppCompatActivity() {
             // --- ΕΔΩ ΠΡΟΣΘΕΤΟΥΜΕ ΤΟ ΝΕΟ ΠΛΑΙΣΙΟ ΠΑΝΩ ΣΤΟΝ ΧΑΡΤΗ ---
             tvCurrentGrade.visibility = View.VISIBLE
             if (currentSpeed < 1.0f) {
-                tvCurrentGrade.text = "Grade: 0.0%"
+                tvCurrentGrade.text = "Κλίση σημείου: 0.0%"
                 tvCurrentGrade.setTextColor(Color.BLACK)
             } else {
-                tvCurrentGrade.text = "Grade: ${String.format("%.1f", grade)}%"
+                tvCurrentGrade.text = "Κλίση σημείου: ${String.format("%.1f", grade)}%"
                 // Χρώματα για το λευκό πλαίσιο
                 when {
                     grade > 1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#D32F2F"))
@@ -844,6 +848,7 @@ class MainActivity : AppCompatActivity() {
 
         // Επίσης καλό είναι να μηδενίσεις το Accuracy αν θέλεις
         tvAccuracy.visibility = View.GONE
+        statsContainer.visibility = View.GONE // Εξαφάνιση του πάνελ
 
         map.invalidate()
         showCustomToast("Αποθηκεύτηκε: $formattedDistance km")
