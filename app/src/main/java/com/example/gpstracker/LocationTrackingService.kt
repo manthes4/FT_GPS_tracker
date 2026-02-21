@@ -23,25 +23,34 @@ class LocationTrackingService : Service() {
     private var previousLocation: Location? = null
     private var totalDistance: Float = 0f
 
-    //για τον υπολογισμο της κλισης του εδαφους
-    private var lastAltitude: Double? = null
-    private var lastAltitudeLocation: Location? = null
-    private var currentGrade: Double = 0.0
+     private var currentGrade: Double = 0.0
+    private val altitudeBuffer = mutableListOf<Pair<Float, Double>>() // Pair(Απόσταση_Διαδρομής, Υψόμετρο)
 
     override fun onCreate() {
         super.onCreate()
-        startForegroundService()
+
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Μηδενισμός δεδομένων κάθε φορά που πατάμε "Start" στην Activity
+        totalDistance = 0f
+        currentGrade = 0.0
+        altitudeBuffer.clear()
+        previousLocation = null
+
+        startForegroundService() // Εκκίνηση του Notification
 
         if (ActivityCompat.checkSelfPermission(
                 this, android.Manifest.permission.ACCESS_FINE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            // Αυξάνουμε λίγο το minDistance (π.χ. 1.0f) για να βοηθήσουμε το hardware να φιλτράρει μόνο του
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER, 1500L, 1.0f, locationListener
             )
         }
+
+        return START_STICKY
     }
 
     private fun startForegroundService() {
@@ -72,56 +81,56 @@ class LocationTrackingService : Service() {
     }
 
     private val locationListener = LocationListener { location ->
-        // 1. Έλεγχος ακρίβειας (όπως το είχες)
         if (location.accuracy > 20) return@LocationListener
 
         val currentSpeedKmH = location.speed * 3.6f
 
-        // --- ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ (Grade) ---
-        if (lastAltitudeLocation == null) {
-            lastAltitudeLocation = location
-            lastAltitude = location.altitude
-        }
-
-        val distanceForGrade = lastAltitudeLocation!!.distanceTo(location)
-
-        // Υπολογισμός κάθε 30 μέτρα για αξιοπιστία
-        if (distanceForGrade >= 30f && location.accuracy < 10f) {
-            val heightDelta = location.altitude - lastAltitude!!
-            currentGrade = (heightDelta / distanceForGrade) * 100
-
-            // Όριο για ακραίες τιμές
-            if (currentGrade > 25.0) currentGrade = 25.0
-            if (currentGrade < -25.0) currentGrade = -25.0
-
-            lastAltitude = location.altitude
-            lastAltitudeLocation = location
-        }
-
+        // 1. ΕΝΗΜΕΡΩΣΗ ΑΠΟΣΤΑΣΗΣ (Πρέπει να γίνει πριν την κλίση)
         if (previousLocation != null) {
             val distance = previousLocation!!.distanceTo(location)
-
-            // 2. ΔΙΠΛΟΣ ΕΛΕΓΧΟΣ:
-            // Πρέπει ΚΑΙ η απόσταση να είναι > 2.5m ΚΑΙ η ταχύτητα > 1.0km/h
             if (distance >= 2.5f && currentSpeedKmH > 1.0f) {
                 totalDistance += distance
             }
         }
 
-        // 3. Στέλνουμε ΠΑΝΤΑ το Intent για να βλέπουμε την ταχύτητα 0.0 στην οθόνη
+        // 2. --- ΝΕΟΣ ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ (Sliding Window) ---
+        // Προσθέτουμε το τρέχον σημείο (Απόσταση, Υψόμετρο) στη λίστα
+        altitudeBuffer.add(Pair(totalDistance, location.altitude))
+
+        // Κρατάμε μόνο τα τελευταία 50 μέτρα στη λίστα για να μη γεμίζει η μνήμη
+        while (altitudeBuffer.isNotEmpty() && (totalDistance - altitudeBuffer.first().first) > 50f) {
+            altitudeBuffer.removeAt(0)
+        }
+
+        // Ψάχνουμε στη λίστα ένα σημείο που να είναι 25 έως 35 μέτρα "πίσω"
+        val backPoint = altitudeBuffer.find { (totalDistance - it.first) in 25f..35f }
+
+        if (backPoint != null && location.accuracy < 12f) {
+            val distDiff = totalDistance - backPoint.first
+            val altDiff = location.altitude - backPoint.second
+
+            if (distDiff > 0) {
+                currentGrade = (altDiff / distDiff) * 100
+
+                // Όριο για ακραίες τιμές
+                if (currentGrade > 25.0) currentGrade = 25.0
+                if (currentGrade < -25.0) currentGrade = -25.0
+            }
+        }
+        // --------------------------------------------------
+
+        // 3. Αποστολή Intent (Όπως πριν)
         val intent = Intent("LocationUpdate").apply {
             setPackage(packageName)
             putExtra("lat", location.latitude)
             putExtra("lng", location.longitude)
             putExtra("distance", totalDistance)
             putExtra("current_speed", currentSpeedKmH)
-            putExtra("accuracy", location.accuracy) // ΕΛΕΓΞΕ ΑΥΤΗ ΤΗ ΓΡΑΜΜΗ
-            putExtra("grade", currentGrade) // Κλιση εδαφους
+            putExtra("accuracy", location.accuracy)
+            putExtra("grade", currentGrade)
         }
         sendBroadcast(intent)
 
-        // 4. Ενημερώνουμε την προηγούμενη θέση μόνο αν η ταχύτητα ήταν επαρκής,
-        // ώστε να μην "σέρνουμε" το σφάλμα του drift.
         if (currentSpeedKmH > 1.0f) {
             previousLocation = location
         }

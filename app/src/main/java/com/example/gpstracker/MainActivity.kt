@@ -541,10 +541,13 @@ class MainActivity : AppCompatActivity() {
         lastLocation = null // Πολύ σημαντικό για να ξεκινήσει σωστά η νέα μέτρηση
         isTracking = true
         totalDistance = 0f
+        currentSpeed = 0f // Μηδένισε και την ταχύτητα για σιγουριά
         startTime = System.currentTimeMillis()
 
         tvGrade.text = "0.0" // μηδενισμος κλισης
         tvGrade.setTextColor(Color.WHITE)
+        tvDistance.text = "0.00 km"
+        tvCurrentSpeed.text = "0.0"
 
         map.invalidate() // Ανανέωση χάρτη για να φύγουν όλα τα παλιά
 
