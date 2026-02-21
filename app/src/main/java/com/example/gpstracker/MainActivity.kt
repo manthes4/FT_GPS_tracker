@@ -88,6 +88,7 @@ class MainActivity : AppCompatActivity() {
     private var currentSpeed: Float = 0f
     private var currentLocationMarker: Marker? = null
     private lateinit var statsContainer: LinearLayout // Δήλωση στην κορυφή
+    private var hasZoomedToTracking = false
 
     private lateinit var mapEventsOverlay: MapEventsOverlay
 
@@ -180,6 +181,7 @@ class MainActivity : AppCompatActivity() {
         tvCurrentGrade = findViewById(R.id.tvCurrentGrade) // Σύνδεση με το ID του XML
         statsContainer = findViewById(R.id.stats_container)
 
+        map.setMaxZoomLevel(23.0) // Επιτρέπει στην εφαρμογή να ζητήσει παραπάνω ζουμ
         map.setMultiTouchControls(true)
         // 1. Ορίζουμε τον "παροχέα" Google Tiles
         val googleHybrid = object : OnlineTileSourceBase(
@@ -483,6 +485,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    //οταν ανοιγω την εφαρμογη
     private fun zoomToLastKnownLocation() {
         if (ActivityCompat.checkSelfPermission(
                 this,
@@ -494,8 +497,12 @@ class MainActivity : AppCompatActivity() {
 
             lastKnownLocation?.let {
                 val geoPoint = GeoPoint(it.latitude, it.longitude)
-                map.controller.setCenter(geoPoint)
-                map.controller.setZoom(17.0)
+                map.post {
+                    map.controller.setCenter(geoPoint)
+                    // Δοκίμασε 19.0 για να δεις τη διαφορά με το 17.0 της αρχικής
+                    map.controller.animateTo(geoPoint, 19.5, 1000L)
+                    map.invalidate()
+                }
 
                 // Προσθήκη marker για την αρχική θέση (ανθρωπάκι)
                 initialLocationMarker = Marker(map).apply {
@@ -582,6 +589,7 @@ class MainActivity : AppCompatActivity() {
         kmlPurpleMarker = null
         lastLocation = null // Πολύ σημαντικό για να ξεκινήσει σωστά η νέα μέτρηση
         isTracking = true
+        hasZoomedToTracking = false // <--- ΠΡΟΣΘΕΣΕ ΑΥΤΟ ΕΔΩ
         totalDistance = 0f
         currentSpeed = 0f // Μηδένισε και την ταχύτητα για σιγουριά
         startTime = System.currentTimeMillis()
@@ -637,7 +645,7 @@ class MainActivity : AppCompatActivity() {
         stepCounterManager.start()
 
         showCustomToast("Tracking started")
-        zoomToLastKnownLocation()
+        //zoomToLastKnownLocation()
         updateNotification("Tracking started")
 
         // 4. ΕΝΗΜΕΡΩΣΗ UI (ΜΟΝΟ ΓΙΑ ΤΟ ΧΡΟΝΟΜΕΤΡΟ)
@@ -682,6 +690,7 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
+    // Όταν πατάς "Start GPS" (Πλοήγηση)
     private val locationReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val lat = intent?.getDoubleExtra("lat", 0.0) ?: 0.0
@@ -695,6 +704,14 @@ class MainActivity : AppCompatActivity() {
 // --- ΠΡΟΣΘΕΣΕ ΑΥΤΑ ΤΑ ΤΡΙΑ ---
             val bearing = intent?.getFloatExtra("bearing", 0f) ?: 0f
             val newPoint = GeoPoint(lat, lng)
+
+            // ΕΔΩ ΜΠΑΙΝΕΙ Η ΛΟΓΙΚΗ ΤΟΥ ΖΟΥΜ (Μέσα στο MainActivity)
+            if (isTracking && !hasZoomedToTracking) {
+                map.controller.animateTo(newPoint, 18.5, 800L)
+                hasZoomedToTracking = true // Το κλειδώνουμε για να μην ξαναζουμάρει μόνο του
+            } else {
+                map.controller.setCenter(newPoint)
+            }
 
 // Ενημέρωση του βέλους στην κορυφή της γραμμής
             updateCurrentLocationMarker(newPoint, bearing)
@@ -1478,10 +1495,16 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    // οταν κανω αναζητηση
     private fun zoomToLocation(lat: Double, lon: Double, name: String) {
         val geoPoint = GeoPoint(lat, lon)
-        map.controller.setCenter(geoPoint)
-        map.controller.setZoom(18.0)
+// Χρησιμοποιούμε handler για να δώσουμε χρόνο στο MapView να κάνει το animation
+        map.post {
+            map.controller.setCenter(geoPoint)
+            // Δοκίμασε 19.0 για να δεις τη διαφορά με το 17.0 της αρχικής
+            map.controller.animateTo(geoPoint, 19.5, 1000L)
+            map.invalidate()
+        }
 
         // 1. Αφαίρεση του προηγούμενου marker αν υπάρχει
         currentSearchMarker?.let {
