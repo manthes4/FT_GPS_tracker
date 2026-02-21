@@ -24,7 +24,7 @@ class LocationTrackingService : Service() {
     private var totalDistance: Float = 0f
 
      private var currentGrade: Double = 0.0
-    private val altitudeBuffer = mutableListOf<Pair<Float, Double>>() // Pair(Απόσταση_Διαδρομής, Υψόμετρο)
+    private val altitudeBuffer = mutableListOf<Triple<Float, Double, Location>>()
 
     override fun onCreate() {
         super.onCreate()
@@ -93,26 +93,40 @@ class LocationTrackingService : Service() {
             }
         }
 
-        // 2. --- ΝΕΟΣ ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ (Sliding Window) ---
-        // Προσθέτουμε το τρέχον σημείο (Απόσταση, Υψόμετρο) στη λίστα
-        altitudeBuffer.add(Pair(totalDistance, location.altitude))
+// 2. --- ΒΕΛΤΙΩΜΕΝΟΣ ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ (Geometry Logic) ---
+        // Αποθηκεύουμε: Συνολική Απόσταση, Υψόμετρο, και το ίδιο το Location αντικείμενο
+        altitudeBuffer.add(Triple(totalDistance, location.altitude, location))
 
-        // Κρατάμε μόνο τα τελευταία 50 μέτρα στη λίστα για να μη γεμίζει η μνήμη
-        while (altitudeBuffer.isNotEmpty() && (totalDistance - altitudeBuffer.first().first) > 50f) {
+        while (altitudeBuffer.isNotEmpty() && (totalDistance - altitudeBuffer.first().first) > 65f) {
             altitudeBuffer.removeAt(0)
         }
 
-        // Ψάχνουμε στη λίστα ένα σημείο που να είναι 25 έως 35 μέτρα "πίσω"
-        val backPoint = altitudeBuffer.find { (totalDistance - it.first) in 25f..35f }
+        // Ψάχνουμε σημείο 35-45 μέτρα πίσω βάσει του "κοντέρ"
+        val backPoint = altitudeBuffer.find { (totalDistance - it.first) in 35f..45f }
 
-        if (backPoint != null && location.accuracy < 12f) {
-            val distDiff = totalDistance - backPoint.first
-            val altDiff = location.altitude - backPoint.second
+        // Έλεγχος ακρίβειας (Vertical Accuracy αν υπάρχει, αλλιώς απλό Accuracy)
+        val isAccurate = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasVerticalAccuracy()) {
+            location.verticalAccuracyMeters < 8f
+        } else {
+            location.accuracy < 8f
+        }
 
-            if (distDiff > 0) {
-                currentGrade = (altDiff / distDiff) * 100
+        if (backPoint != null && isAccurate) {
+            // Χρησιμοποιούμε την απευθείας απόσταση μεταξύ των δύο σημείων (Γεωμετρική)
+            val horizontalDist = backPoint.third.distanceTo(location)
 
-                // Όριο για ακραίες τιμές
+            // Υπολογίζουμε μόνο αν η γεωμετρική απόσταση είναι επαρκής (π.χ. > 15μ)
+            if (horizontalDist > 15f) {
+                val altDiff = location.altitude - backPoint.second
+                val calculatedGrade = (altDiff / horizontalDist) * 100
+
+                // Smoothing για να μην έχουμε απότομες αλλαγές
+                currentGrade = (currentGrade * 0.7) + (calculatedGrade * 0.3)
+
+                // Deadzone για την ευθεία
+                if (Math.abs(currentGrade) < 0.6) currentGrade = 0.0
+
+                // Όρια
                 if (currentGrade > 25.0) currentGrade = 25.0
                 if (currentGrade < -25.0) currentGrade = -25.0
             }
