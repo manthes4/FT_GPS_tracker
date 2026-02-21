@@ -152,21 +152,17 @@ class StatsActivity : AppCompatActivity() {
     }
 
     private fun exportToKML(index: Int, stat: String) {
+        val tvTime = findViewById<android.widget.TextView>(R.id.tv_time)
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
-        // Παίρνουμε τα δεδομένα που σώθηκαν από την MainActivity
         val routeData = sharedPreferences.getString("route_data", "") ?: ""
 
-        // 1. ΕΛΕΓΧΟΣ: Αν δεν υπάρχουν συντεταγμένες, ενημέρωσε και βγες
         if (routeData.isBlank()) {
-            Toast.makeText(this, "Δεν βρέθηκαν γεωγραφικά δεδομένα για εξαγωγή", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Δεν βρέθηκαν δεδομένα", Toast.LENGTH_SHORT).show()
             return
         }
 
-        // 2. ΕΠΕΞΕΡΓΑΣΙΑ ΣΥΝΤΕΤΑΓΜΕΝΩΝ
-        // Εφόσον είναι ήδη "lon,lat", απλά καθαρίζουμε τις αλλαγές γραμμής σε κενά
         val coordinatesList = routeData.trim().replace("\n", " ")
 
-        // 3. ΔΗΜΙΟΥΡΓΙΑ ΠΕΡΙΕΧΟΜΕΝΟΥ KML
         val kmlContent = """
 <?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
@@ -176,8 +172,6 @@ class StatsActivity : AppCompatActivity() {
             <name>Στατιστικά: $stat</name>
             <description>$stat</description>
             <LineString>
-                <extrude>1</extrude>
-                <tessellate>1</tessellate>
                 <coordinates>$coordinatesList</coordinates>
             </LineString>
         </Placemark>
@@ -185,15 +179,17 @@ class StatsActivity : AppCompatActivity() {
 </kml>
 """.trimIndent()
 
-        // 4. ΟΝΟΜΑΣΙΑ ΑΡΧΕΙΟΥ
         val parts = stat.split("\\s+".toRegex()).filter { it.isNotEmpty() }
         val date = parts.getOrNull(0)?.replace("/", "-") ?: "no_date"
         val distance = parts.getOrNull(2)?.replace(",", ".") ?: "0"
         val steps = parts.getOrNull(4) ?: "0"
 
-        val fileName = "Route_${date}_${distance}km_${steps}steps.kml"
+        // Παίρνουμε τον χρόνο από το tv_time και αντικαθιστούμε το : με -
+        val timeForFile = tvTime?.text.toString().replace(":", "-")
 
-        // 5. ΑΠΟΘΗΚΕΥΣΗ
+        // Το όνομα αρχείου περιλαμβάνει πλέον και τον χρόνο στο τέλος
+        val fileName = "Route_${date}_${distance}km_${steps}steps_${timeForFile}.kml"
+
         saveToDocuments(fileName, kmlContent, "application/vnd.google-earth.kml+xml")
     }
 

@@ -991,42 +991,47 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadKmlFromFile(file: File) {
+        // 1. Βρίσκουμε το TextView χρησιμοποιώντας το σωστό σου ID: tv_time
+        val tvTime = findViewById<android.widget.TextView>(R.id.tv_time)
+
         try {
             val inputStream = file.inputStream()
             val filename = file.name
 
-            // 1. Εκτελείται η υπάρχουσα συνάρτηση που σχεδιάζει τα πάντα
             parseKmlFile(inputStream)
             inputStream.close()
 
-            // 2. Παίρνουμε τα σημεία από την Polyline που μόλις δημιούργησε η parseKmlFile
             val points = kmlRoute?.points
 
             if (points != null && points.isNotEmpty()) {
+
+                // --- ΕΞΑΓΩΓΗ ΧΡΟΝΟΥ ΑΠΟ ΤΟ FILENAME ---
+                val cleanName = filename.replace(".kml", "")
+                val parts = cleanName.split("_")
+
+                // Παίρνουμε το τελευταίο μέρος (π.χ. 00-45-12) και το κάνουμε 00:45:12
+                val timeStr = parts.lastOrNull { it.contains("-") }
+                    ?.replace("-", ":") ?: "00:00:00"
+
+                // 2. Ενημερώνουμε το ρολόι στην οθόνη
+                tvTime?.text = timeStr
+
                 val statsSummary = getStatsFromFilename(filename)
 
-                // 3. Δημιουργούμε έναν αόρατο ή διάφανο Marker για να δείξει το InfoWindow
-                val infoMarker = Marker(map)
-                infoMarker.position = points.first() // Στο πρώτο σημείο
-
-                // Αν θέλεις να φαίνεται πάνω από τον πράσινο marker:
-                infoMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-
-                // Για να μην φαίνεται δεύτερο εικονίδιο, μπορούμε να του βάλουμε
-                // ένα διάφανο χρώμα ή να χρησιμοποιήσουμε τον ήδη υπάρχοντα kmlGreenMarker
                 kmlGreenMarker?.let {
                     it.title = "Στατιστικά Διαδρομής"
                     it.snippet = statsSummary
-                    it.showInfoWindow() // Εμφάνιση των stats
+                    it.showInfoWindow()
                 } ?: run {
-                    // Αν για κάποιο λόγο δεν υπάρχει ο kmlGreenMarker
+                    val infoMarker = Marker(map)
+                    infoMarker.position = points.first()
+                    infoMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                     infoMarker.title = "Στατιστικά Διαδρομής"
                     infoMarker.snippet = statsSummary
                     map.overlays.add(infoMarker)
                     infoMarker.showInfoWindow()
                 }
 
-                // Εστίαση στην αρχή
                 map.controller.animateTo(points.first())
                 map.invalidate()
             }
