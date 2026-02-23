@@ -7,6 +7,9 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -16,12 +19,18 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.overlay.Polyline
+import android.hardware.SensorEvent
 
-class LocationTrackingService : Service() {
+class LocationTrackingService : Service(), SensorEventListener {
 
     private lateinit var locationManager: LocationManager
     private var previousLocation: Location? = null
     private var totalDistance: Float = 0f
+    private lateinit var sensorManager: SensorManager // ΠΡΟΣΘΗΚΗ
+
+    private var gravityGrade: Double = 0.0 // Η κλίση από το επιταχυνσιόμετρο
+
+    private var lastStepTime = 0L // Αποθηκεύει την ώρα που έγινε το τελευταίο βήμα
 
      private var currentGrade: Double = 0.0
     private val altitudeBuffer = mutableListOf<Triple<Float, Double, Location>>()
@@ -30,7 +39,46 @@ class LocationTrackingService : Service() {
         super.onCreate()
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+        // --- ΕΔΩ ΜΠΑΙΝΕΙ Η ΛΟΓΙΚΗ ΑΙΣΘΗΤΗΡΑ ---
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
+        stepSensor?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+        }
+
+        val accelSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        accelSensor?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+        }
     }
+
+    // ΠΡΟΣΘΗΚΗ: Υλοποίηση της μεθόδου onSensorChanged
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event?.sensor?.type == Sensor.TYPE_STEP_COUNTER) {
+            lastStepTime = System.currentTimeMillis()
+        }
+
+        if (event?.sensor?.type == Sensor.TYPE_ACCELEROMETER) {
+            val az = event.values[2] // Ο άξονας Z (κάθετα στην οθόνη)
+            val ay = event.values[1] // Ο άξονας Y (μήκος του κινητού)
+
+            // Υπολογισμός γωνίας σε μοίρες και μετατροπή σε % κλίση
+            // Χρησιμοποιούμε την εφαπτομένη της γωνίας y/z
+            val angleRad = Math.atan2(ay.toDouble(), az.toDouble())
+            val angleDeg = Math.toDegrees(angleRad)
+
+            // Μετατροπή μοιρών σε ποσοστό (Grade % = tan(angle) * 100)
+            val newGravityGrade = Math.tan(angleRad) * 100
+            gravityGrade = (gravityGrade * 0.8) + (newGravityGrade * 0.2)
+
+            // Φίλτρο για να μην "παίζει" πολύ η τιμή
+            if (Math.abs(gravityGrade) > 100) gravityGrade = 100.0
+        }
+    }
+
+    // ΠΡΟΣΘΗΚΗ: Υλοποίηση της μεθόδου onAccuracyChanged (απαιτείται από το interface)
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Μηδενισμός δεδομένων κάθε φορά που πατάμε "Start" στην Activity
@@ -38,6 +86,7 @@ class LocationTrackingService : Service() {
         currentGrade = 0.0
         altitudeBuffer.clear()
         previousLocation = null
+        lastStepTime = 0L // Μηδενισμός στην αρχή
 
         startForegroundService() // Εκκίνηση του Notification
 
@@ -84,11 +133,20 @@ class LocationTrackingService : Service() {
         if (location.accuracy > 20) return@LocationListener
 
         val currentSpeedKmH = location.speed * 3.6f
+        val currentTime = System.currentTimeMillis()
 
-        // 1. ΕΝΗΜΕΡΩΣΗ ΑΠΟΣΤΑΣΗΣ (Πρέπει να γίνει πριν την κλίση)
+        // --- ΕΔΩ ΜΠΑΙΝΕΙ Η ΛΟΓΙΚΗ ΤΟΥ ΦΙΛΤΡΟΥ ---
+        // Ελέγχουμε αν έγινε βήμα τα τελευταία 15 δευτερόλεπτα
+        val isMovingBySteps = (currentTime - lastStepTime) < 15000
+
+        // 1. ΕΝΗΜΕΡΩΣΗ ΑΠΟΣΤΑΣΗΣ
         if (previousLocation != null) {
             val distance = previousLocation!!.distanceTo(location)
-            if (distance >= 2.5f && currentSpeedKmH > 1.0f) {
+
+            // Προσθήκη απόστασης ΜΟΝΟ αν:
+            // Υπάρχουν βήματα πρόσφατα (isMovingBySteps)
+            // Ή αν η ταχύτητα είναι μεγάλη (π.χ. > 15km/h για ποδήλατο/αμάξι)
+            if (distance >= 2.5f && (isMovingBySteps || currentSpeedKmH > 15.0f)) {
                 totalDistance += distance
             }
         }
@@ -141,8 +199,9 @@ class LocationTrackingService : Service() {
             putExtra("distance", totalDistance)
             putExtra("current_speed", currentSpeedKmH)
             putExtra("accuracy", location.accuracy)
-            putExtra("grade", currentGrade)
             putExtra("bearing", location.bearing)
+            putExtra("grade", currentGrade)        // Κλίση δρόμου (GPS)
+            putExtra("device_pitch", gravityGrade) // Κλίση συσκευής (Accelerometer)
         }
         sendBroadcast(intent)
 
@@ -157,6 +216,7 @@ class LocationTrackingService : Service() {
         super.onDestroy()
         locationManager.removeUpdates(locationListener)
         // Μηδενισμός για την επόμενη χρήση
+        sensorManager.unregisterListener(this) // Αποδέσμευση αισθητήρα
         totalDistance = 0f
         previousLocation = null
     }

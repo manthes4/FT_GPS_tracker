@@ -136,7 +136,7 @@ class MainActivity : AppCompatActivity() {
     private var lastLocation: Location? = null // Variable to store the last location
     private var initialLocationMarker: Marker? = null // Declare the variable
     private var previousLocation: Location? = null
-    private var totalDistance = 0f
+    private var totalDistance: Float = 0f // Αποθηκεύει την απόσταση σε μέτρα
     private var startTime: Long = 0
     private val handler = Handler()
     private var locationMarker: Marker? = null // Declare locationMarker here
@@ -181,15 +181,49 @@ class MainActivity : AppCompatActivity() {
         tvCurrentGrade = findViewById(R.id.tvCurrentGrade) // Σύνδεση με το ID του XML
         statsContainer = findViewById(R.id.stats_container)
 
-        map.setMaxZoomLevel(23.0) // Επιτρέπει στην εφαρμογή να ζητήσει παραπάνω ζουμ
+// --- 1. ΡΥΘΜΙΣΕΙΣ CONFIGURATION (ΠΡΙΝ ΤΟ SETCONTENTVIEW) ---
+        val conf = Configuration.getInstance()
+        conf.load(this, getPreferences(Context.MODE_PRIVATE))
+        conf.userAgentValue = packageName
+
+        // Αυξάνουμε τη μνήμη για να μη φορτώνει συνέχεια (Λύνει το λαγκάρισμα)
+        conf.cacheMapTileCount = 28
+        conf.cacheMapTileOvershoot = 20
+
+        setContentView(R.layout.activity_main)
+
+        // --- 2. ΣΥΝΔΕΣΗ IDS ---
+        map = findViewById(R.id.map)
+        startButton = findViewById(R.id.button_start)
+        stopButton = findViewById(R.id.button_stop)
+        viewStatsButton = findViewById(R.id.button_view_stats)
+        viewSatellitesButton = findViewById(R.id.button_view_satellites)
+        fabLoadKml = findViewById(R.id.fab_load_kml)
+        fabSearch = findViewById(R.id.fab_search)
+        fabTogglePOI = findViewById(R.id.fab_toggle_poi)
+
+        tvDistance = findViewById(R.id.tv_distance)
+        tvTime = findViewById(R.id.tv_time)
+        tvCurrentSpeed = findViewById(R.id.tv_current_speed)
+        tvAvgSpeed = findViewById(R.id.tv_avg_speed)
+        tvSteps = findViewById(R.id.tv_steps)
+        tvAccuracy = findViewById(R.id.tv_accuracy)
+        tvGrade = findViewById(R.id.tv_grade)
+        tvCurrentGrade = findViewById(R.id.tvCurrentGrade)
+        statsContainer = findViewById(R.id.stats_container)
+
+        // --- 3. ΡΥΘΜΙΣΕΙΣ ΧΑΡΤΗ ---
+        map.setMaxZoomLevel(21.0)
         map.setMultiTouchControls(true)
-        // 1. Ορίζουμε τον "παροχέα" Google Tiles
+        map.setHasTransientState(true) // Πολύ σημαντικό για το flickering
+        map.tilesScaleFactor = 1.2f
+
+        // Ορισμός Google Tiles
         val googleHybrid = object : OnlineTileSourceBase(
             "GoogleHybrid", 0, 20, 256, ".png",
-            arrayOf("https://mt1.google.com/vt/lyrs=y&") // Το lyrs=y είναι για Hybrid (Δορυφόρος + Δρόμοι)
+            arrayOf("https://mt1.google.com/vt/lyrs=y&")
         ) {
             override fun getTileURLString(pTileIndex: Long): String {
-                // Χτίζουμε το URL χειροκίνητα με τη σωστή σειρά παραμέτρων της Google
                 val zoom = MapTileIndex.getZoom(pTileIndex)
                 val x = MapTileIndex.getX(pTileIndex)
                 val y = MapTileIndex.getY(pTileIndex)
@@ -197,12 +231,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-// 2. ΠΟΛΥ ΣΗΜΑΝΤΙΚΟ: Ορισμός User Agent (χωρίς αυτό η Google μπορεί να επιστρέψει κενό)
-        org.osmdroid.config.Configuration.getInstance().userAgentValue = packageName
-
-// 3. Εφαρμογή στον χάρτη
         map.setTileSource(googleHybrid)
-        map.isTilesScaledToDpi = false
 
         // Enable Rotation Gesture Overlay
         val rotationGestureOverlay = RotationGestureOverlay(map)
@@ -500,7 +529,7 @@ class MainActivity : AppCompatActivity() {
                 map.post {
                     map.controller.setCenter(geoPoint)
                     // Δοκίμασε 19.0 για να δεις τη διαφορά με το 17.0 της αρχικής
-                    map.controller.animateTo(geoPoint, 19.5, 1000L)
+                    map.controller.animateTo(geoPoint, 18.5, 1000L)
                     map.invalidate()
                 }
 
@@ -690,88 +719,81 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    // Όταν πατάς "Start GPS" (Πλοήγηση)
     private val locationReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val lat = intent?.getDoubleExtra("lat", 0.0) ?: 0.0
             val lng = intent?.getDoubleExtra("lng", 0.0) ?: 0.0
-            val distance = intent?.getFloatExtra("distance", 0f) ?: 0f
-            currentSpeed = intent?.getFloatExtra("current_speed", 0f) ?: 0f
-            val accuracy = intent?.getFloatExtra("accuracy", 0f) ?: 0f // Λήψη accuracy
-            // 1. ΛΗΨΗ ΤΗΣ ΚΛΙΣΗΣ
-            val grade = intent?.getDoubleExtra("grade", 0.0) ?: 0.0
 
-// --- ΠΡΟΣΘΕΣΕ ΑΥΤΑ ΤΑ ΤΡΙΑ ---
+            currentSpeed = intent?.getFloatExtra("current_speed", 0f) ?: 0f
+            val accuracy = intent?.getFloatExtra("accuracy", 0f) ?: 0f
+            val roadGrade = intent?.getDoubleExtra("grade", 0.0) ?: 0.0
+            val deviceGrade = intent?.getDoubleExtra("device_pitch", 0.0) ?: 0.0
             val bearing = intent?.getFloatExtra("bearing", 0f) ?: 0f
             val newPoint = GeoPoint(lat, lng)
 
-            // ΕΔΩ ΜΠΑΙΝΕΙ Η ΛΟΓΙΚΗ ΤΟΥ ΖΟΥΜ (Μέσα στο MainActivity)
+            // Μέσα στον locationReceiver
+            val distanceInMeters = intent?.getFloatExtra("distance", 0f) ?: 0f
+            this@MainActivity.totalDistance = distanceInMeters
+
+            if (distanceInMeters < 1000) {
+                tvDistance.text = String.format("%.0f m", distanceInMeters)
+            } else {
+                val distanceInKm = distanceInMeters / 1000f
+                tvDistance.text = String.format("%.2f km", distanceInKm)
+            }
+
+            // --- ΔΙΟΡΘΩΣΗ ΜΕΣΗΣ ΤΑΧΥΤΗΤΑΣ ---
+            val timeElapsedHours = (System.currentTimeMillis() - startTime) / 3600000.0
+            if (timeElapsedHours > 0.001) { // Μετά από μερικά δευτερόλεπτα
+                val avgSpeedKmH = (distanceInMeters / 1000.0) / timeElapsedHours
+                tvAvgSpeed.text = String.format("%.1f", avgSpeedKmH)
+            }
+
+            // Ενημέρωση Στιγμιαίας Ταχύτητας (Km/h)
+            tvCurrentSpeed.text = String.format("%.1f", currentSpeed)
+
+            // Accuracy UI
+            tvAccuracy.text = "Accuracy GPS: ${String.format("%.1f", accuracy)}m"
+            tvAccuracy.setTextColor(if (accuracy > 20) Color.RED else Color.parseColor("#006400"))
+
+            // Λογική Zoom & Marker (Όπως τα είχες)
             if (isTracking && !hasZoomedToTracking) {
                 map.controller.animateTo(newPoint, 18.5, 800L)
-                hasZoomedToTracking = true // Το κλειδώνουμε για να μην ξαναζουμάρει μόνο του
+                hasZoomedToTracking = true
             } else {
                 map.controller.setCenter(newPoint)
             }
-
-// Ενημέρωση του βέλους στην κορυφή της γραμμής
             updateCurrentLocationMarker(newPoint, bearing)
-            totalDistance += distance                              // Ενημέρωση συνολικής απόστασης
 
-            // Ενημέρωση Accuracy UI
-            tvAccuracy.text = "Accuracy GPS: ${String.format("%.1f", accuracy)}m"
-            if (accuracy > 20) {
-                tvAccuracy.setTextColor(Color.RED)
-            } else {
-                tvAccuracy.setTextColor(Color.parseColor("#006400")) // Σκούρο πράσινο
-            }
-
-            // --- ΕΔΩ ΠΡΟΣΘΕΤΟΥΜΕ ΤΟ ΝΕΟ ΠΛΑΙΣΙΟ ΠΑΝΩ ΣΤΟΝ ΧΑΡΤΗ ---
+            // Κλίση Συσκευής (Πάνω στον χάρτη)
             tvCurrentGrade.visibility = View.VISIBLE
-            if (currentSpeed < 1.0f) {
-                tvCurrentGrade.text = "Κλίση σημείου: 0.0%"
-                tvCurrentGrade.setTextColor(Color.BLACK)
-            } else {
-                tvCurrentGrade.text = "Κλίση σημείου: ${String.format("%.1f", grade)}%"
-                // Χρώματα για το λευκό πλαίσιο
-                when {
-                    grade > 1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#D32F2F"))
-                    grade < -1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#388E3C"))
-                    else -> tvCurrentGrade.setTextColor(Color.BLACK)
-                }
+            tvCurrentGrade.text = "Κλίση σημείου: ${String.format("%.1f", deviceGrade)}%"
+            when {
+                deviceGrade > 1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#D32F2F"))
+                deviceGrade < -1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#388E3C"))
+                else -> tvCurrentGrade.setTextColor(Color.BLACK)
             }
 
-            // 2. ΕΝΗΜΕΡΩΣΗ GRADE UI (ΚΛΙΣΗ)
-            if (grade < 0.5 && grade > -0.5) {
-                tvGrade.text = "0.0"
-            } else {
-                tvGrade.text = String.format("%.1f", grade)
+            // Κλίση Διαδρομής (Κεντρικό UI)
+            tvGrade.text = if (Math.abs(roadGrade) < 0.5) "0.0" else String.format("%.1f", roadGrade)
+            when {
+                roadGrade > 1.0 -> tvGrade.setTextColor(Color.parseColor("#FF5252"))
+                roadGrade < -1.0 -> tvGrade.setTextColor(Color.parseColor("#64DD17"))
+                else -> tvGrade.setTextColor(Color.WHITE)
             }
 
-            // Αλλαγή χρώματος ανάλογα με την κλίση
-            if (grade > 1.0) {
-                tvGrade.setTextColor(Color.parseColor("#FF5252")) // Κόκκινο για ανηφόρα
-            } else if (grade < -1.0) {
-                tvGrade.setTextColor(Color.parseColor("#64DD17")) // Πράσινο για κατηφόρα
-            } else {
-                tvGrade.setTextColor(Color.WHITE) // Λευκό για ευθεία
-            }
+            // Σχεδίαση γραμμής
+            route?.addPoint(newPoint)
+            borderRoute?.addPoint(newPoint)
 
-            val geoPoint = GeoPoint(lat, lng)
-
-            // ΣΧΕΔΙΑΣΗ ΓΡΑΜΜΗΣ
-            route?.addPoint(geoPoint)
-            borderRoute?.addPoint(geoPoint)
-
-            // ΕΛΕΓΧΟΣ ΓΙΑ ΠΡΑΣΙΝΟ MARKER (ΑΡΧΗ)
             if (startMarker == null) {
                 startMarker = Marker(map).apply {
-                    position = geoPoint
+                    position = newPoint
                     icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.green_marker)
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                 }
                 map.overlays.add(startMarker)
             }
-
             map.invalidate()
         }
     }
@@ -865,7 +887,7 @@ class MainActivity : AppCompatActivity() {
 
         // Επίσης καλό είναι να μηδενίσεις το Accuracy αν θέλεις
         tvAccuracy.visibility = View.GONE
-        statsContainer.visibility = View.GONE // Εξαφάνιση του πάνελ
+        //statsContainer.visibility = View.GONE // Εξαφάνιση του πάνελ
 
         map.invalidate()
         showCustomToast("Αποθηκεύτηκε: $formattedDistance km")
@@ -1502,7 +1524,7 @@ class MainActivity : AppCompatActivity() {
         map.post {
             map.controller.setCenter(geoPoint)
             // Δοκίμασε 19.0 για να δεις τη διαφορά με το 17.0 της αρχικής
-            map.controller.animateTo(geoPoint, 19.5, 1000L)
+            map.controller.animateTo(geoPoint, 18.5, 1000L)
             map.invalidate()
         }
 
@@ -1677,6 +1699,9 @@ class MainActivity : AppCompatActivity() {
         roadOverlay = null
         startMarker = null
         endMarker = null
+
+        // Εξαφάνιση του πάνελ πληροφοριών
+        statsContainer.visibility = View.GONE
 
         // 7. Ανανέωση χάρτη
         map.invalidate()
