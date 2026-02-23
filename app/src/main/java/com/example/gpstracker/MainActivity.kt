@@ -77,8 +77,10 @@ import java.net.URLEncoder
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.drawable.BitmapDrawable
 import android.widget.LinearLayout
 import org.osmdroid.views.overlay.Polyline
+import org.osmdroid.views.overlay.TilesOverlay
 
 private var currentSearchMarker: Marker? = null
 
@@ -155,44 +157,25 @@ class MainActivity : AppCompatActivity() {
     private var planningInfoMarker: Marker? = null
     private var isPlanningEnabled = false
 
+    private var globalMarkerIcon: Drawable? = null // Αποθηκεύει το εικονίδιο μόνιμα
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Configuration.getInstance().load(this, getPreferences(Context.MODE_PRIVATE))
-        Configuration.getInstance().setCacheMapTileCount(23)
-        Configuration.getInstance().setCacheMapTileOvershoot(18)
-        setContentView(R.layout.activity_main)
 
-        map = findViewById(R.id.map)
-        startButton = findViewById(R.id.button_start)
-        stopButton = findViewById(R.id.button_stop)
-        viewStatsButton = findViewById(R.id.button_view_stats)
-        viewSatellitesButton = findViewById(R.id.button_view_satellites)
-        fabLoadKml = findViewById(R.id.fab_load_kml)
-        fabSearch = findViewById(R.id.fab_search)
-        fabTogglePOI = findViewById(R.id.fab_toggle_poi)  // Initialize new FAB
-
-        tvDistance = findViewById(R.id.tv_distance)
-        tvTime = findViewById(R.id.tv_time)
-        tvCurrentSpeed = findViewById(R.id.tv_current_speed)
-        tvAvgSpeed = findViewById(R.id.tv_avg_speed)
-        tvSteps = findViewById(R.id.tv_steps) // ΑΥΤΟ ΛΕΙΠΕΙ ΚΑΙ ΕΙΝΑΙ ΚΡΙΣΙΜΟ
-        tvAccuracy = findViewById(R.id.tv_accuracy) // Πρόσθεσε αυτό
-        tvGrade = findViewById(R.id.tv_grade)
-        tvCurrentGrade = findViewById(R.id.tvCurrentGrade) // Σύνδεση με το ID του XML
-        statsContainer = findViewById(R.id.stats_container)
-
-// --- 1. ΡΥΘΜΙΣΕΙΣ CONFIGURATION (ΠΡΙΝ ΤΟ SETCONTENTVIEW) ---
+        // --- 1. CONFIGURATION (ΜΙΑ ΦΟΡΑ ΣΤΗΝ ΑΡΧΗ) ---
         val conf = Configuration.getInstance()
+        conf.cacheMapTileCount = 100   // περισσότερα tiles στη μνήμη
+        conf.cacheMapTileOvershoot = 30 // πιο επιθετικό preload
         conf.load(this, getPreferences(Context.MODE_PRIVATE))
         conf.userAgentValue = packageName
 
-        // Αυξάνουμε τη μνήμη για να μη φορτώνει συνέχεια (Λύνει το λαγκάρισμα)
-        conf.cacheMapTileCount = 28
+        // Ρυθμίσεις Μνήμης (Υψηλές τιμές για ομαλότητα)
+        conf.cacheMapTileCount = 30
         conf.cacheMapTileOvershoot = 20
 
+        // --- 2. LAYOUT & IDS (ΜΙΑ ΦΟΡΑ) ---
         setContentView(R.layout.activity_main)
 
-        // --- 2. ΣΥΝΔΕΣΗ IDS ---
         map = findViewById(R.id.map)
         startButton = findViewById(R.id.button_start)
         stopButton = findViewById(R.id.button_stop)
@@ -212,11 +195,25 @@ class MainActivity : AppCompatActivity() {
         tvCurrentGrade = findViewById(R.id.tvCurrentGrade)
         statsContainer = findViewById(R.id.stats_container)
 
-        // --- 3. ΡΥΘΜΙΣΕΙΣ ΧΑΡΤΗ ---
-        map.setMaxZoomLevel(21.0)
-        map.setMultiTouchControls(true)
-        map.setHasTransientState(true) // Πολύ σημαντικό για το flickering
-        map.tilesScaleFactor = 1.2f
+// --- 3. Map basic settings ---
+        map.setMultiTouchControls(true)        // pinch + drag
+        map.setBuiltInZoomControls(false)      // κλείνουμε τα buttons
+        map.isTilesScaledToDpi = false          // smooth scrolling με σωστό scale
+        map.tilesScaleFactor = 1.0f
+        map.setFlingEnabled(true)              // smooth inertia scroll
+        map.setUseDataConnection(true)         // κατέβασμα tiles
+        map.setMapOrientation(0f)              // North up
+        map.isHorizontalMapRepetitionEnabled = false
+        map.isVerticalMapRepetitionEnabled = false
+
+// --- 4. TilesOverlay tweaks για flicker ---
+        val tilesOverlay = map.overlayManager.tilesOverlay
+        tilesOverlay.setLoadingBackgroundColor(Color.TRANSPARENT)
+        tilesOverlay.setLoadingLineColor(Color.TRANSPARENT)
+
+        // Λύση για το Flickering
+        map.getOverlayManager().getTilesOverlay().setLoadingBackgroundColor(Color.TRANSPARENT)
+        map.getOverlayManager().getTilesOverlay().setLoadingLineColor(Color.TRANSPARENT)
 
         // Ορισμός Google Tiles
         val googleHybrid = object : OnlineTileSourceBase(
@@ -230,16 +227,14 @@ class MainActivity : AppCompatActivity() {
                 return "${baseUrl}x=$x&y=$y&z=$zoom"
             }
         }
-
         map.setTileSource(googleHybrid)
 
-        // Enable Rotation Gesture Overlay
+        // Rotation
         val rotationGestureOverlay = RotationGestureOverlay(map)
         rotationGestureOverlay.isEnabled = true
         map.overlays.add(rotationGestureOverlay)
 
         // Αρχικοποίηση του Helper
-// 1. Αρχικοποίηση του Helper
         routePlanner = RoutePlannerHelper(this, map)
 
         routePlanner.routeUpdateListener = object : RoutePlannerHelper.OnRouteUpdateListener {
@@ -653,7 +648,7 @@ class MainActivity : AppCompatActivity() {
         route = Polyline().apply {
             // Η κεντρική γραμμή - Έντονο Cyan/Λευκό-Μπλε
             outlinePaint.color = Color.parseColor("#F26C13")
-            outlinePaint.strokeWidth = 8.0f // Πιο λεπτό για να φαίνεται το glow από κάτω
+            outlinePaint.strokeWidth = 9.0f // Πιο λεπτό για να φαίνεται το glow από κάτω
             outlinePaint.strokeJoin = Paint.Join.ROUND
             outlinePaint.strokeCap = Paint.Cap.ROUND
             outlinePaint.isAntiAlias = true
@@ -799,21 +794,39 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateCurrentLocationMarker(point: GeoPoint, bearing: Float) {
-        // Αν ο marker δεν έχει δημιουργηθεί ακόμα, τον φτιάχνουμε
         if (currentLocationMarker == null) {
+            // --- Δημιουργία Bitmap ΜΙΑ ΦΟΡΑ ---
+            val drawable = ContextCompat.getDrawable(this, R.drawable.arrow_vector)!!.mutate()
+            drawable.setTint(Color.parseColor("#F55302"))
+
+            val width = drawable.intrinsicWidth
+            val height = drawable.intrinsicHeight
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, width, height)
+            drawable.draw(canvas)
+
+            val finalIcon = BitmapDrawable(resources, bitmap)
+
             currentLocationMarker = Marker(map).apply {
-                icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.arrow_vector)
-                icon?.setTint(Color.parseColor("#F55302")) // Electric Blue
+                icon = finalIcon
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                 infoWindow = null
                 map.overlays.add(this)
             }
         }
 
-        // Ενημερώνουμε τη θέση και την κλίση του ίδιου marker
-        currentLocationMarker?.position = point
-        currentLocationMarker?.rotation = -bearing
-        map.invalidate()
+        // --- Μόνο Position και Rotation ---
+        currentLocationMarker?.let { marker ->
+            marker.position = point
+            marker.rotation = -bearing // Στην osmdroid το bearing θέλει μείον
+        }
+
+        // ΠΡΟΣΟΧΗ: Μην βάζεις map.invalidate() αν δεν είσαι σε Tracking Mode
+        // Αν ο χρήστης σκρολάρει, ο χάρτης κάνει invalidate μόνος του
+        if (isTracking) {
+            map.invalidate()
+        }
     }
 
     private fun getLastKnownLocation(): Location? {
