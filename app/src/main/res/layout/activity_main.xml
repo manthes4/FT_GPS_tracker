@@ -67,7 +67,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_margin="4dp"
-        android:background="#CC1B1D2D"
+        android:background="#801B1D2D"
         android:elevation="4dp"
         android:orientation="horizontal"
         android:padding="12dp"
@@ -399,58 +399,59 @@
 
     </LinearLayout>
 
-    <!-- Floating Action Button for loading KML -->
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/fab_search"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_marginTop="16dp"
-        android:layout_marginEnd="8dp"
-        android:backgroundTint="#FF6D00"
-        android:src="@drawable/search_24"
-        app:fabSize="mini"
-        app:maxImageSize="28dp"
+    <LinearLayout
+        android:id="@+id/fab_container"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="10dp"
+        android:background="@drawable/fab_container_bg"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:padding="4dp"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toTopOf="parent">
 
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/button_plan_mode"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_marginTop="52dp"
-        android:layout_marginEnd="8dp"
-        android:backgroundTint="#FF6D00"
-        android:src="@drawable/direction"
-        app:fabSize="mini"
-        app:maxImageSize="28dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/fab_search" />
+        <ImageButton
+            android:id="@+id/fab_search"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/search_24"
+            android:contentDescription="Search"
+            app:tint="#05BBFD" />
 
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/button_undo_plan"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_marginTop="12dp"
-        android:layout_marginEnd="8dp"
-        android:backgroundTint="#FF6D00"
-        android:src="@drawable/undo"
-        app:fabSize="mini"
-        app:maxImageSize="28dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/button_plan_mode"/>
+        <ImageButton
+            android:id="@+id/button_plan_mode"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/direction"
+            android:contentDescription="Plan"
+            app:tint="#05BBFD" />
 
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/button_clear_map"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_marginTop="12dp"
-        android:layout_marginEnd="8dp"
-        android:backgroundTint="#FF6D00"
-        android:src="@drawable/baseline_delete_24"
-        app:fabSize="mini"
-        app:maxImageSize="28dp"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/button_undo_plan" />
+        <ImageButton
+            android:id="@+id/button_undo_plan"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/undo"
+            android:contentDescription="Undo"
+            app:tint="#05BBFD" />
+
+        <ImageButton
+            android:id="@+id/button_clear_map"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/baseline_delete_24"
+            android:contentDescription="Clear Map"
+            app:tint="#05BBFD" />
+
+    </LinearLayout>
 
 
 </androidx.constraintlayout.widget.ConstraintLayout>

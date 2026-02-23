@@ -103,6 +103,11 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var tvCurrentGrade: TextView // κλιση εδαφους σε συγκεκριμενο σημειο
 
+    private lateinit var fabSearch: ImageButton
+    private lateinit var buttonPlanMode: ImageButton
+    private lateinit var buttonUndoPlan: ImageButton
+    private lateinit var buttonClearMap: ImageButton
+
     private lateinit var tvSteps: TextView     // Το UI στοιχείο
     private var currentSteps: Int = 0          // Τα βήματα της τρέχουσας διαδρομής
     private var initialSteps: Int = 0          // Η αρχική τιμή του αισθητήρα
@@ -119,7 +124,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var viewSatellitesButton: View
     private lateinit var statsDisplay: TextView
     private lateinit var fabLoadKml: View
-    private lateinit var fabSearch: FloatingActionButton
     private lateinit var fabTogglePOI: View  // New FAB for POI toggle
     private var roadOverlay: Polyline? = null // Μεταβλητή για να διαχειριζόμαστε τη γραμμή
 
@@ -246,8 +250,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 2. Σύνδεση του κουμπιού Clear Map (Σωστά το έβαλες, απλά σιγουρέψου ότι η συνάρτηση είναι η "σαρωτική")
-        val btnClearMap =
-            findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.button_clear_map)
+        val btnClearMap = findViewById<android.widget.ImageButton>(R.id.button_clear_map)
         btnClearMap.setOnClickListener {
             clearMapRouting()
         }
@@ -288,7 +291,7 @@ class MainActivity : AppCompatActivity() {
         map.overlays.add(0, MapEventsOverlay(mEventsReceiver))
 
 // Ένα κουμπί (π.χ. ImageButton) για ενεργοποίηση/απενεργοποίηση του Planning
-        val btnPlan = findViewById<FloatingActionButton>(R.id.button_plan_mode)
+        val btnPlan = findViewById<android.widget.ImageButton>(R.id.button_plan_mode)
         btnPlan.setOnClickListener {
             isPlanningEnabled = !isPlanningEnabled
             if (isPlanningEnabled) {
@@ -300,7 +303,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val btnUndo = findViewById<FloatingActionButton>(R.id.button_undo_plan)
+        val btnUndo = findViewById<android.widget.ImageButton>(R.id.button_undo_plan)
         btnUndo.setOnClickListener {
             if (isPlanningEnabled) {
                 routePlanner.undoLastPoint()
