@@ -106,6 +106,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvSteps: TextView     // Το UI στοιχείο
     private var currentSteps: Int = 0          // Τα βήματα της τρέχουσας διαδρομής
     private var initialSteps: Int = 0          // Η αρχική τιμή του αισθητήρα
+
     //μετρηση βηματων
     private lateinit var stepCounterManager: StepCounterManager
 
@@ -245,7 +246,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // 2. Σύνδεση του κουμπιού Clear Map (Σωστά το έβαλες, απλά σιγουρέψου ότι η συνάρτηση είναι η "σαρωτική")
-        val btnClearMap = findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.button_clear_map)
+        val btnClearMap =
+            findViewById<com.google.android.material.floatingactionbutton.FloatingActionButton>(R.id.button_clear_map)
         btnClearMap.setOnClickListener {
             clearMapRouting()
         }
@@ -415,7 +417,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 101) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
@@ -770,7 +776,8 @@ class MainActivity : AppCompatActivity() {
             }
 
             // Κλίση Διαδρομής (Κεντρικό UI)
-            tvGrade.text = if (Math.abs(roadGrade) < 0.5) "0.0" else String.format("%.1f", roadGrade)
+            tvGrade.text =
+                if (Math.abs(roadGrade) < 0.5) "0.0" else String.format("%.1f", roadGrade)
             when {
                 roadGrade > 1.0 -> tvGrade.setTextColor(Color.parseColor("#FF5252"))
                 roadGrade < -1.0 -> tvGrade.setTextColor(Color.parseColor("#64DD17"))
@@ -884,7 +891,10 @@ class MainActivity : AppCompatActivity() {
         // 4. Σταμάτημα Service & UI
         val intent = Intent(this, LocationTrackingService::class.java)
         stopService(intent)
-        try { unregisterReceiver(locationReceiver) } catch (e: Exception) {}
+        try {
+            unregisterReceiver(locationReceiver)
+        } catch (e: Exception) {
+        }
         handler.removeCallbacks(updateStatsRunnable)
 
         // 5. Καθαρισμός UI (Αν θες να μηδενίζονται αμέσως)
@@ -1464,16 +1474,32 @@ class MainActivity : AppCompatActivity() {
                             } else append(name)
 
                             val city = props.optString("city", "")
-                            val district = props.optString("district", props.optString("suburb", ""))
+                            val district =
+                                props.optString("district", props.optString("suburb", ""))
                             val area = if (district.isNotEmpty()) district else city
                             if (area.isNotEmpty()) append(", $area")
                         }
 
                         // ΥΠΟΛΟΓΙΣΜΟΣ ΑΠΟΣΤΑΣΗΣ ΑΠΟ ΤΟ GPS (distRefLat/Lon)
                         val distArray = FloatArray(1)
-                        android.location.Location.distanceBetween(distRefLat, distRefLon, resLat, resLon, distArray)
+                        android.location.Location.distanceBetween(
+                            distRefLat,
+                            distRefLon,
+                            resLat,
+                            resLon,
+                            distArray
+                        )
 
-                        resultsList.add(SearchResult(displayTitle, resLat, resLon, distArray[0], 0.0, 30))
+                        resultsList.add(
+                            SearchResult(
+                                displayTitle,
+                                resLat,
+                                resLon,
+                                distArray[0],
+                                0.0,
+                                30
+                            )
+                        )
                     }
 
                     // ΤΑΞΙΝΟΜΗΣΗ ΚΑΙ ΛΗΨΗ 20 ΑΠΟΤΕΛΕΣΜΑΤΩΝ
@@ -1488,8 +1514,11 @@ class MainActivity : AppCompatActivity() {
                             showNominatimSelectionDialog(finalResults)
                         }
                     }
-                } catch (e: Exception) { e.printStackTrace() }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
+
             override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {}
         })
     }
@@ -1502,7 +1531,8 @@ class MainActivity : AppCompatActivity() {
         }.toTypedArray()
 
         val listView = ListView(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_list_item_1, displayNames)
+            adapter =
+                ArrayAdapter(this@MainActivity, android.R.layout.simple_list_item_1, displayNames)
         }
 
         val dialog = AlertDialog.Builder(this)
@@ -1515,7 +1545,11 @@ class MainActivity : AppCompatActivity() {
             val selected = results[which]
 
             // Χρήση πραγματικού GPS για την αφετηρία
-            val lastKnown = if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            val lastKnown = if (ActivityCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
+            ) {
                 locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
             } else null
 
@@ -1601,7 +1635,8 @@ class MainActivity : AppCompatActivity() {
 
                         // Σύντομο info χωρίς toast
                         val walkingMinutes = (road.mLength / 5.0) * 60.0
-                        val timeText = if (walkingMinutes >= 60) "${(walkingMinutes/60).toInt()}ω ${(walkingMinutes%60).toInt()}λ" else "${walkingMinutes.toInt()}λ"
+                        val timeText =
+                            if (walkingMinutes >= 60) "${(walkingMinutes / 60).toInt()}ω ${(walkingMinutes % 60).toInt()}λ" else "${walkingMinutes.toInt()}λ"
                         val info = "🚶 $timeText | ${String.format("%.2f", road.mLength)} km"
 
                         val activeMarker = currentSearchMarker ?: endMarker
@@ -1613,7 +1648,9 @@ class MainActivity : AppCompatActivity() {
                         map.invalidate()
                     }
                 }
-            } catch (e: Exception) { Log.e("ROUTING", e.message ?: "") }
+            } catch (e: Exception) {
+                Log.e("ROUTING", e.message ?: "")
+            }
         }.start()
     }
 
@@ -1622,7 +1659,11 @@ class MainActivity : AppCompatActivity() {
             // Καθαρισμός αν υπήρχε προηγούμενη διαδρομή και ορισμός νέας αφετηρίας
             clearMapRouting()
             startPoint = point
-            startMarker = addMarker(point, "Αφετηρία", R.drawable.edit_location_alt_24px) // Βάλε ένα δικό σου εικονίδιο
+            startMarker = addMarker(
+                point,
+                "Αφετηρία",
+                R.drawable.edit_location_alt_24px
+            ) // Βάλε ένα δικό σου εικονίδιο
             showCustomToast("Ορίστηκε Αφετηρία")
         } else {
             // Ορισμός προορισμού
@@ -1651,9 +1692,11 @@ class MainActivity : AppCompatActivity() {
             planningInfoMarker = Marker(map)
 
             // Διάφανο εικονίδιο για να μη φαίνεται το "χεράκι"
-            val transparentBitmap = android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
+            val transparentBitmap =
+                android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
             transparentBitmap.eraseColor(android.graphics.Color.TRANSPARENT)
-            planningInfoMarker?.icon = android.graphics.drawable.BitmapDrawable(resources, transparentBitmap)
+            planningInfoMarker?.icon =
+                android.graphics.drawable.BitmapDrawable(resources, transparentBitmap)
 
             planningInfoMarker?.setInfoWindowAnchor(0.5f, -64.5f)
         }
@@ -1672,7 +1715,8 @@ class MainActivity : AppCompatActivity() {
         planningInfoMarker?.position = point
         planningInfoMarker?.title = "Σχεδιασμός Διαδρομής"
         // Το Snippet τώρα μοιάζει με αυτό της απλής δρομολόγησης
-        planningInfoMarker?.snippet = "Περπάτημα: $timeText\nΑπόσταση: ${String.format("%.2f", totalDistance)} km"
+        planningInfoMarker?.snippet =
+            "Περπάτημα: $timeText\nΑπόσταση: ${String.format("%.2f", totalDistance)} km"
 
         if (!map.overlays.contains(planningInfoMarker)) {
             map.overlays.add(planningInfoMarker)
@@ -1712,11 +1756,16 @@ class MainActivity : AppCompatActivity() {
         roadOverlay = null
         startMarker = null
         endMarker = null
+        currentLocationMarker = null // Μηδενίζουμε και το βέλος για να μην έχουμε διπλά είδωλα
 
-        // Εξαφάνιση του πάνελ πληροφοριών
+        // --- Η ΠΡΟΣΘΗΚΗ ΣΟΥ ΕΔΩ ---
+        // 7. Επαναφορά στην αρχική κατάσταση (Ανθρωπάκι + Zoom)
+        zoomToLastKnownLocation()
+
+        // 8. Εξαφάνιση του πάνελ πληροφοριών
         statsContainer.visibility = View.GONE
 
-        // 7. Ανανέωση χάρτη
+        // 9. Ανανέωση χάρτη
         map.invalidate()
         showCustomToast("Ο χάρτης καθαρίστηκε")
     }
