@@ -634,7 +634,13 @@ class MainActivity : AppCompatActivity() {
         tvGrade.text = "0.0" // μηδενισμος κλισης
         tvGrade.setTextColor(Color.WHITE)
         tvDistance.text = "0.00 km"
-        tvCurrentSpeed.text = "0.0"
+        tvDistance.text = "0.00 km"
+
+        // 5. Καθαρισμός UI (Αν θες να μηδενίζονται αμέσως)
+        tvTime.text = "00:00:00"
+        tvAvgSpeed.text = "0.0"
+        // Μην ξεχάσεις τα βήματα!
+        tvSteps.text = "0"
 
         // Μέσα στη startTracking() σου, εκεί που καθαρίζεις τα overlays:
         currentLocationMarker?.let { map.overlays.remove(it) }
@@ -899,17 +905,6 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
         }
         handler.removeCallbacks(updateStatsRunnable)
-
-        // 5. Καθαρισμός UI (Αν θες να μηδενίζονται αμέσως)
-        tvDistance.text = "0.00 km"
-        tvTime.text = "00:00:00"
-        tvCurrentSpeed.text = "0.0"
-        tvAvgSpeed.text = "0.0"
-        // Μην ξεχάσεις τα βήματα!
-        tvSteps.text = "0"
-
-        tvGrade.text = "0.0"
-        tvGrade.setTextColor(Color.WHITE)
 
         // Επίσης καλό είναι να μηδενίσεις το Accuracy αν θέλεις
         tvAccuracy.visibility = View.GONE

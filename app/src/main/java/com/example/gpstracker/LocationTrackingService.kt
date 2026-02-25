@@ -130,23 +130,23 @@ class LocationTrackingService : Service(), SensorEventListener {
     }
 
     private val locationListener = LocationListener { location ->
-        if (location.accuracy > 20) return@LocationListener
+        // 1. Ακρίβεια: Στο βουνό/μονοπάτια το 20 είναι αυστηρό. Το 30 είναι πιο ρεαλιστικό.
+        if (location.accuracy > 30) return@LocationListener
 
         val currentSpeedKmH = location.speed * 3.6f
         val currentTime = System.currentTimeMillis()
 
-        // --- ΕΔΩ ΜΠΑΙΝΕΙ Η ΛΟΓΙΚΗ ΤΟΥ ΦΙΛΤΡΟΥ ---
-        // Ελέγχουμε αν έγινε βήμα τα τελευταία 15 δευτερόλεπτα
-        val isMovingBySteps = (currentTime - lastStepTime) < 15000
+        // 2. Βήματα: Αυξάνουμε το παράθυρο στα 40 δευτερόλεπτα.
+        // Στην πεζοπορία μπορεί να σταματήσεις να βγάλεις μια φωτό ή να ανέβεις μια απότομη κλίση.
+        val isMovingBySteps = (currentTime - lastStepTime) < 60000
 
-        // 1. ΕΝΗΜΕΡΩΣΗ ΑΠΟΣΤΑΣΗΣ
         if (previousLocation != null) {
             val distance = previousLocation!!.distanceTo(location)
 
-            // Προσθήκη απόστασης ΜΟΝΟ αν:
-            // Υπάρχουν βήματα πρόσφατα (isMovingBySteps)
-            // Ή αν η ταχύτητα είναι μεγάλη (π.χ. > 15km/h για ποδήλατο/αμάξι)
-            if (distance >= 2.5f && (isMovingBySteps || currentSpeedKmH > 15.0f)) {
+            // 3. ΤΟ ΦΙΛΤΡΟ ΠΕΖΟΠΟΡΙΑΣ:
+            // distance >= 1.0f: Ακόμα και μικρά βήματα μετράνε.
+            // currentSpeedKmH > 0.8f: Ακόμα και αν σέρνεσαι σε ανηφόρα (0.8 χλμ/ώρα), κατέγραψε!
+            if (distance >= 1.0f && (isMovingBySteps || currentSpeedKmH > 0.8f)) {
                 totalDistance += distance
             }
         }
