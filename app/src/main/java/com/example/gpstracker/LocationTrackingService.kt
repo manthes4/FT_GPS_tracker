@@ -130,39 +130,44 @@ class LocationTrackingService : Service(), SensorEventListener {
     }
 
     private val locationListener = LocationListener { location ->
-        // 1. Ακρίβεια: Στο βουνό/μονοπάτια το 20 είναι αυστηρό. Το 30 είναι πιο ρεαλιστικό.
-        if (location.accuracy > 30) return@LocationListener
+        // 1. Βασικό φίλτρο ακρίβειας - Στο βουνό το 35 είναι πιο ρεαλιστικό
+        if (location.accuracy > 35) return@LocationListener
 
         val currentSpeedKmH = location.speed * 3.6f
         val currentTime = System.currentTimeMillis()
 
-        // 2. Βήματα: Αυξάνουμε το παράθυρο στα 40 δευτερόλεπτα.
-        // Στην πεζοπορία μπορεί να σταματήσεις να βγάλεις μια φωτό ή να ανέβεις μια απότομη κλίση.
+        // Παράθυρο 60 δευτερολέπτων για τα βήματα (αντιμετώπιση Android Batching)
         val isMovingBySteps = (currentTime - lastStepTime) < 60000
 
         if (previousLocation != null) {
             val distance = previousLocation!!.distanceTo(location)
 
-            // 3. ΤΟ ΦΙΛΤΡΟ ΠΕΖΟΠΟΡΙΑΣ:
-            // distance >= 1.0f: Ακόμα και μικρά βήματα μετράνε.
-            // currentSpeedKmH > 0.8f: Ακόμα και αν σέρνεσαι σε ανηφόρα (0.8 χλμ/ώρα), κατέγραψε!
-            if (distance >= 1.0f && (isMovingBySteps || currentSpeedKmH > 0.8f)) {
+            // --- ΦΙΛΤΡΟ ΤΗΛΕΜΕΤΑΦΟΡΑΣ (Outlier Rejection) ---
+            // Αν η απόσταση είναι παράλογα μεγάλη (π.χ. > 50μ σε ένα δευτερόλεπτο), αγνόησε το σημείο
+            if (distance > 50f) {
+                previousLocation = location
+                return@LocationListener
+            }
+
+            // --- ΔΥΝΑΜΙΚΟ ΟΡΙΟ ΚΙΝΗΣΗΣ ---
+            // minMove: Τουλάχιστον 2.5 μέτρα ή το 25% της ακρίβειας (για να αποφύγουμε το drift)
+            val minMove = maxOf(2.5f, location.accuracy * 0.25f)
+
+            // Προσθήκη απόστασης με τη λογική πεζοπορίας
+            if (distance >= minMove && (isMovingBySteps || currentSpeedKmH > 0.8f)) {
                 totalDistance += distance
             }
         }
 
-// 2. --- ΒΕΛΤΙΩΜΕΝΟΣ ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ (Geometry Logic) ---
-        // Αποθηκεύουμε: Συνολική Απόσταση, Υψόμετρο, και το ίδιο το Location αντικείμενο
+        // --- ΒΕΛΤΙΩΜΕΝΟΣ ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ (Geometry Logic) ---
         altitudeBuffer.add(Triple(totalDistance, location.altitude, location))
 
         while (altitudeBuffer.isNotEmpty() && (totalDistance - altitudeBuffer.first().first) > 65f) {
             altitudeBuffer.removeAt(0)
         }
 
-        // Ψάχνουμε σημείο 35-45 μέτρα πίσω βάσει του "κοντέρ"
         val backPoint = altitudeBuffer.find { (totalDistance - it.first) in 35f..45f }
 
-        // Έλεγχος ακρίβειας (Vertical Accuracy αν υπάρχει, αλλιώς απλό Accuracy)
         val isAccurate = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && location.hasVerticalAccuracy()) {
             location.verticalAccuracyMeters < 8f
         } else {
@@ -170,28 +175,24 @@ class LocationTrackingService : Service(), SensorEventListener {
         }
 
         if (backPoint != null && isAccurate) {
-            // Χρησιμοποιούμε την απευθείας απόσταση μεταξύ των δύο σημείων (Γεωμετρική)
             val horizontalDist = backPoint.third.distanceTo(location)
 
-            // Υπολογίζουμε μόνο αν η γεωμετρική απόσταση είναι επαρκής (π.χ. > 15μ)
             if (horizontalDist > 15f) {
                 val altDiff = location.altitude - backPoint.second
-                val calculatedGrade = (altDiff / horizontalDist) * 100
 
-                // Smoothing για να μην έχουμε απότομες αλλαγές
-                currentGrade = (currentGrade * 0.7) + (calculatedGrade * 0.3)
+                // Φιλτράρισμα θορύβου υψομέτρου
+                if (Math.abs(altDiff) > 1.2) {
+                    val calculatedGrade = (altDiff / horizontalDist) * 100
+                    currentGrade = (currentGrade * 0.7) + (calculatedGrade * 0.3)
+                }
 
-                // Deadzone για την ευθεία
                 if (Math.abs(currentGrade) < 0.6) currentGrade = 0.0
-
-                // Όρια
                 if (currentGrade > 25.0) currentGrade = 25.0
                 if (currentGrade < -25.0) currentGrade = -25.0
             }
         }
-        // --------------------------------------------------
 
-        // 3. Αποστολή Intent (Όπως πριν)
+        // --- ΑΠΟΣΤΟΛΗ ΔΕΔΟΜΕΝΩΝ ΣΤΟ UI ---
         val intent = Intent("LocationUpdate").apply {
             setPackage(packageName)
             putExtra("lat", location.latitude)
@@ -200,14 +201,15 @@ class LocationTrackingService : Service(), SensorEventListener {
             putExtra("current_speed", currentSpeedKmH)
             putExtra("accuracy", location.accuracy)
             putExtra("bearing", location.bearing)
-            putExtra("grade", currentGrade)        // Κλίση δρόμου (GPS)
-            putExtra("device_pitch", gravityGrade) // Κλίση συσκευής (Accelerometer)
+            putExtra("grade", currentGrade)
+            putExtra("device_pitch", gravityGrade)
         }
         sendBroadcast(intent)
 
-        if (currentSpeedKmH > 1.0f) {
-            previousLocation = location
-        }
+        // --- Η ΚΡΙΣΙΜΗ ΔΙΟΡΘΩΣΗ ---
+        // Ενημερώνουμε ΠΑΝΤΑ το previousLocation για να μη δημιουργούνται "άλματα" (spikes)
+        // όταν το GPS ξαναβρίσκει σήμα ή όταν ξαναξεκινάμε μετά από στάση.
+        previousLocation = location
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
