@@ -92,6 +92,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statsContainer: LinearLayout // Δήλωση στην κορυφή
     private var hasZoomedToTracking = false
 
+    // Μια λίστα που θα κρατάει όλα τα σημεία της διαδρομής
+    private val pathPoints = mutableListOf<org.osmdroid.util.GeoPoint>()
+
     private lateinit var mapEventsOverlay: MapEventsOverlay
 
     private lateinit var tvDistance: TextView
@@ -626,6 +629,7 @@ class MainActivity : AppCompatActivity() {
         totalDistance = 0f
         currentSpeed = 0f // Μηδένισε και την ταχύτητα για σιγουριά
         startTime = System.currentTimeMillis()
+        pathPoints.clear() // Καθαρισμός για τη νέα διαδρομή
 
 // ΚΑΘΑΡΙΣΜΟΣ ΤΟΥ ΖΩΝΤΑΝΟΥ ΒΕΛΟΥΣ
         currentLocationMarker?.let { map.overlays.remove(it) }
@@ -740,6 +744,16 @@ class MainActivity : AppCompatActivity() {
             val deviceGrade = intent?.getDoubleExtra("device_pitch", 0.0) ?: 0.0
             val bearing = intent?.getFloatExtra("bearing", 0f) ?: 0f
             val newPoint = GeoPoint(lat, lng)
+            val isValid = intent?.getBooleanExtra("is_valid", false) ?: false
+            // ΜΟΝΟ αν το σημείο είναι έγκυρο (δηλ. κινούμαστε) το αποθηκεύουμε και το σχεδιάζουμε
+            if (isValid) {
+                // 1. Αποθήκευση στη λίστα για το KML Export
+                pathPoints.add(newPoint)
+
+                // 2. Σχεδίαση της γραμμής στον χάρτη
+                route?.addPoint(newPoint)
+                borderRoute?.addPoint(newPoint)
+            }
 
             // Μέσα στον locationReceiver
             val distanceInMeters = intent?.getFloatExtra("distance", 0f) ?: 0f
@@ -792,10 +806,6 @@ class MainActivity : AppCompatActivity() {
                 roadGrade < -1.0 -> tvGrade.setTextColor(Color.parseColor("#64DD17"))
                 else -> tvGrade.setTextColor(Color.WHITE)
             }
-
-            // Σχεδίαση γραμμής
-            route?.addPoint(newPoint)
-            borderRoute?.addPoint(newPoint)
 
             if (startMarker == null) {
                 startMarker = Marker(map).apply {
@@ -857,64 +867,90 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun saveRouteData() {
-        val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
-        val editor = sharedPreferences.edit()
+    private fun saveRouteDataLocally() {
+        if (pathPoints.isEmpty()) {
+            Log.e("GPS_TRACKER", "Δεν υπάρχουν σημεία για αποθήκευση")
+            return
+        }
 
-        // Παίρνουμε τα σημεία από τη γραμμή που σχεδιάζεται στον χάρτη
-        val pointsList = route?.actualPoints
+        // Δημιουργία ονόματος αρχείου βάσει ημερομηνίας/ώρας (π.χ. route_20240520_1530.kml)
+        val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        val internalFileName = "route_$timestamp.kml"
 
-        if (pointsList != null && pointsList.isNotEmpty()) {
-            // ΠΡΟΣΟΧΗ: Το KML θέλει Longitude (lng) πρώτα, μετά Latitude (lat)
-            val routeData = pointsList.joinToString("\n") { "${it.longitude},${it.latitude}" }
-            editor.putString("route_data", routeData)
-            editor.apply()
-            Log.d("KML_DEBUG", "Saved ${pointsList.size} points to SharedPreferences")
-        } else {
-            Log.e("KML_DEBUG", "No points found in route overlay!")
+        // Δημιουργία του περιεχομένου KML
+        val kmlHeader = """<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Διαδρομή $timestamp</name>
+    <Placemark>
+      <LineString>
+        <coordinates>"""
+
+        val coordinates = pathPoints.joinToString(" ") { "${it.longitude},${it.latitude},0" }
+
+        val kmlFooter = """
+        </coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>"""
+
+        val fullKml = kmlHeader + coordinates + kmlFooter
+
+        try {
+            // Αποθήκευση στον εσωτερικό φάκελο (data/data/com.example.gpstracker/files)
+            val file = java.io.File(filesDir, internalFileName)
+            file.writeText(fullKml)
+
+            // Σώζουμε ΜΟΝΟ το όνομα του αρχείου στα SharedPreferences των στατιστικών
+            // ώστε η StatsActivity να ξέρει ποιο αρχείο αντιστοιχεί σε αυτή τη διαδρομή
+            val sharedPrefs = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
+            sharedPrefs.edit().putString("last_kml_file", internalFileName).apply()
+
+            Log.d("GPS_TRACKER", "Το αρχείο σώθηκε κρυφά: $internalFileName")
+        } catch (e: Exception) {
+            Log.e("GPS_TRACKER", "Σφάλμα κρυφής αποθήκευσης: ${e.message}")
         }
     }
 
     private fun stopTracking() {
         if (!isTracking) return
-        tvAccuracy.visibility = View.GONE // Απόκρυψη
-
-        // 1. ΠΡΩΤΑ ΑΠΟ ΟΛΑ: Αποθήκευσε τα γεωγραφικά δεδομένα όσο το 'route' είναι ακόμα ζωντανό
-        saveRouteData()
 
         isTracking = false
-        stepCounterManager.stop()
-        val finalSteps = currentSteps
+        tvAccuracy.visibility = View.GONE
 
-        // 2. Τελικοί Υπολογισμοί
+        // 1. Τελικοί Υπολογισμοί
         val elapsedTime = (System.currentTimeMillis() - startTime) / 1000
         val distanceInKm = totalDistance / 1000.0
         val formattedTime = formatTime(elapsedTime)
         val formattedDistance = String.format("%.2f", distanceInKm)
-        val finalAvgSpeed = if (elapsedTime > 0) (distanceInKm / elapsedTime) * 3600 else 0.0
+
+        // Υπολογισμός μέσης ταχύτητας
+        val finalAvgSpeed = if (elapsedTime > 30) (distanceInKm / (elapsedTime / 3600.0)) else 0.0
         val formattedAvgSpeed = String.format("%.1f", finalAvgSpeed)
 
-        // 3. Αποθήκευση στατιστικών
+        val finalSteps = currentSteps
+        stepCounterManager.stop()
+
+        // 2. ΑΠΟΘΗΚΕΥΣΗ (Εδώ γίνονται όλα: KML + Stats)
         saveStats(formattedTime, formattedDistance, formattedAvgSpeed, finalSteps.toString())
 
-        // 4. Σταμάτημα Service & UI
+        // 3. Καθαρισμός Service & Receiver
         val intent = Intent(this, LocationTrackingService::class.java)
         stopService(intent)
         try {
             unregisterReceiver(locationReceiver)
         } catch (e: Exception) {
+            Log.e("STOP_TRACKING", "Receiver already unregistered")
         }
         handler.removeCallbacks(updateStatsRunnable)
 
-        // Επίσης καλό είναι να μηδενίσεις το Accuracy αν θέλεις
-        tvAccuracy.visibility = View.GONE
-        //statsContainer.visibility = View.GONE // Εξαφάνιση του πάνελ
+        // 4. Καθαρισμός λίστας για την επόμενη διαδρομή
+        pathPoints.clear()
 
         map.invalidate()
-        showCustomToast("Αποθηκεύτηκε: $formattedDistance km")
-
-        // ΕΔΩ: Κάλεσε τη συνάρτηση που δημιουργεί το ΦΥΣΙΚΟ αρχείο .kml στη μνήμη
-        // exportToKmlFile()
+        showCustomToast("Τερματισμός tracking")
     }
 
     private fun addPoiToMap(lat: Double, lon: Double, amenity: String, name: String) {
@@ -959,15 +995,53 @@ class MainActivity : AppCompatActivity() {
         return String.format("%02d:%02d:%02d", hours, minutes, secs)
     }
 
-    // Πρόσθεσε την παράμετρο steps
     private fun saveStats(time: String, distance: String, avgSpeed: String, steps: String) {
+        // Α. Δημιουργούμε το κρυφό KML αρχείο και παίρνουμε το όνομά του
+        val kmlFileName = saveKmlInternal()
+
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         val stats = sharedPreferences.getString("stats", "") ?: ""
         val date = SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(Date())
 
-        // Προσθέτουμε και τα βήματα στο τέλος του String (διαχωρισμένα με κενό)
-        val newStat = "$date $time $distance $avgSpeed $steps\n"
+        // Β. Προσθέτουμε το kmlFileName ως 6ο στοιχείο (διαχωρισμένο με κενό)
+        // Format: Ημερομηνία Χρόνος Απόσταση Ταχύτητα Βήματα Όνομα_Αρχείου
+        val newStat = "$date $time $distance $avgSpeed $steps $kmlFileName\n"
+
         sharedPreferences.edit().putString("stats", stats + newStat).apply()
+        Log.d("GPS_TRACKER", "Stats saved with KML: $kmlFileName")
+    }
+
+    private fun saveKmlInternal(): String {
+        if (pathPoints.isEmpty()) return "no_path"
+
+        // Μοναδικό όνομα αρχείου π.χ. route_20240520_153022.kml
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val fileName = "route_$timestamp.kml"
+
+        // Δημιουργία περιεχομένου KML
+        val kmlHeader = """<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Διαδρομή $timestamp</name>
+    <Placemark>
+      <LineString><coordinates>"""
+
+        val coords = pathPoints.joinToString(" ") { "${it.longitude},${it.latitude},0" }
+
+        val kmlFooter = """</coordinates></LineString>
+    </Placemark>
+  </Document>
+</kml>"""
+
+        return try {
+            // Αποθήκευση στον εσωτερικό φάκελο της εφαρμογής (FilesDir)
+            val file = File(filesDir, fileName)
+            file.writeText(kmlHeader + coords + kmlFooter)
+            fileName // Επιστρέφουμε το όνομα για να γραφτεί στα stats
+        } catch (e: Exception) {
+            Log.e("SAVE_KML", "Error: ${e.message}")
+            "error_kml"
+        }
     }
 
     private fun registerGnssCallback() {

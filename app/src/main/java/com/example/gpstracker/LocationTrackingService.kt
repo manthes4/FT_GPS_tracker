@@ -3,6 +3,7 @@ package com.example.gpstracker
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -30,26 +31,45 @@ class LocationTrackingService : Service(), SensorEventListener {
 
     private var gravityGrade: Double = 0.0 // Η κλίση από το επιταχυνσιόμετρο
 
-    private var lastStepTime = 0L // Αποθηκεύει την ώρα που έγινε το τελευταίο βήμα
-
-     private var currentGrade: Double = 0.0
+    private var currentGrade: Double = 0.0
     private val altitudeBuffer = mutableListOf<Triple<Float, Double, Location>>()
+
+    private var currentSteps: Int = 0 // Η μεταβλητή που έλειπε
+    private var lastStepsForFilter: Int = 0
+    private var lastFilterTime: Long = System.currentTimeMillis()
+    private var lastStepTime: Long = 0 // Για το παράθυρο των 60 δευτερολέπτων
+
+    private var startTime: Long = 0L // Η προσθήκη που λείπει
+    private val statsHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private lateinit var statsRunnable: Runnable
 
     override fun onCreate() {
         super.onCreate()
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
-        // --- ΕΔΩ ΜΠΑΙΝΕΙ Η ΛΟΓΙΚΗ ΑΙΣΘΗΤΗΡΑ ---
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
         stepSensor?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) // Μειωμένη συχνότητα
         }
 
         val accelSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         accelSensor?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) // Μειωμένη συχνότητα
+        }
+
+        // Μηδενισμός lastStepTime στην αρχή
+        lastStepTime = 0L
+
+        statsRunnable = object : Runnable {
+            override fun run() {
+                if (startTime != 0L) {
+                    val elapsedTimeSeconds = (System.currentTimeMillis() - startTime) / 1000
+                    updateNotification(totalDistance, elapsedTimeSeconds)
+                }
+                statsHandler.postDelayed(this, 1000) // Επανάληψη κάθε 1 δευτερόλεπτο
+            }
         }
     }
 
@@ -57,22 +77,18 @@ class LocationTrackingService : Service(), SensorEventListener {
     override fun onSensorChanged(event: SensorEvent?) {
         if (event?.sensor?.type == Sensor.TYPE_STEP_COUNTER) {
             lastStepTime = System.currentTimeMillis()
+            currentSteps = event.values[0].toInt() // Αποθήκευση των βημάτων μόνο για reference
+            // ΔΕΝ χρησιμοποιούνται πουθενά στον υπολογισμό απόστασης
         }
 
         if (event?.sensor?.type == Sensor.TYPE_ACCELEROMETER) {
-            val az = event.values[2] // Ο άξονας Z (κάθετα στην οθόνη)
-            val ay = event.values[1] // Ο άξονας Y (μήκος του κινητού)
+            val az = event.values[2]
+            val ay = event.values[1]
 
-            // Υπολογισμός γωνίας σε μοίρες και μετατροπή σε % κλίση
-            // Χρησιμοποιούμε την εφαπτομένη της γωνίας y/z
             val angleRad = Math.atan2(ay.toDouble(), az.toDouble())
-            val angleDeg = Math.toDegrees(angleRad)
-
-            // Μετατροπή μοιρών σε ποσοστό (Grade % = tan(angle) * 100)
             val newGravityGrade = Math.tan(angleRad) * 100
             gravityGrade = (gravityGrade * 0.8) + (newGravityGrade * 0.2)
 
-            // Φίλτρο για να μην "παίζει" πολύ η τιμή
             if (Math.abs(gravityGrade) > 100) gravityGrade = 100.0
         }
     }
@@ -81,12 +97,16 @@ class LocationTrackingService : Service(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Μηδενισμός δεδομένων κάθε φορά που πατάμε "Start" στην Activity
+        // Μηδενισμός δεδομένων κάθε φορά που ξεκινάει η υπηρεσία
         totalDistance = 0f
         currentGrade = 0.0
         altitudeBuffer.clear()
         previousLocation = null
-        lastStepTime = 0L // Μηδενισμός στην αρχή
+        lastStepTime = 0L
+
+        // ΚΑΤΑΓΡΑΦΗ ΤΗΣ ΩΡΑΣ ΕΝΑΡΞΗΣ
+        startTime = System.currentTimeMillis()
+        statsHandler.post(statsRunnable)
 
         startForegroundService() // Εκκίνηση του Notification
 
@@ -102,6 +122,28 @@ class LocationTrackingService : Service(), SensorEventListener {
         return START_STICKY
     }
 
+    private fun updateNotification(distanceMeters: Float, timeSeconds: Long) {
+        val channelId = "GPS_Tracking_Service_Channel"
+
+        val h = timeSeconds / 3600
+        val m = (timeSeconds % 3600) / 60
+        val s = timeSeconds % 60
+        val timeStr = String.format("%02d:%02d:%02d", h, m, s)
+        val distStr = String.format("%.2f km", distanceMeters / 1000f)
+
+        val notification = NotificationCompat.Builder(this, channelId)
+            .setContentTitle("Καταγραφή Διαδρομής")
+            .setContentText("Απόσταση: $distStr | Χρόνος: $timeStr")
+            .setSmallIcon(R.drawable.ic_location)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            // .setContentIntent(pendingIntent) <-- ΑΦΑΙΡΕΘΗΚΕ
+            .build()
+
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(1, notification)
+    }
+
     private fun startForegroundService() {
         val channelId = "GPS_Tracking_Service_Channel"
         val channelName = "GPS Tracking Service"
@@ -115,51 +157,60 @@ class LocationTrackingService : Service(), SensorEventListener {
                 description = "Channel for GPS tracking service"
             }
             val notificationManager = getSystemService(NotificationManager::class.java)
-            notificationManager.createNotificationChannel(channel)
+            notificationManager?.createNotificationChannel(channel)
         }
 
+        // Δημιουργία ειδοποίησης ΧΩΡΙΣ PendingIntent
         val notification: Notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("GPS Tracking")
-            .setContentText("Καταγραφή διαδρομής σε εξέλιξη...")
+            .setContentText("Απόσταση: 0.00 km | Χρόνος: 00:00:00")
             .setSmallIcon(R.drawable.ic_location)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
+            // .setContentIntent(pendingIntent) <-- ΑΦΑΙΡΕΘΗΚΕ
             .build()
 
         startForeground(1, notification)
     }
 
     private val locationListener = LocationListener { location ->
-        // 1. Βασικό φίλτρο ακρίβειας - Στο βουνό το 35 είναι πιο ρεαλιστικό
+        // 1. Βασικό φίλτρο ακρίβειας
         if (location.accuracy > 35) return@LocationListener
+        var isPointValid = false
 
         val currentSpeedKmH = location.speed * 3.6f
         val currentTime = System.currentTimeMillis()
 
-        // Παράθυρο 60 δευτερολέπτων για τα βήματα (αντιμετώπιση Android Batching)
-        val isMovingBySteps = (currentTime - lastStepTime) < 60000
-
         if (previousLocation != null) {
-            val distance = previousLocation!!.distanceTo(location)
+            val gpsDistance = previousLocation!!.distanceTo(location)
 
             // --- ΦΙΛΤΡΟ ΤΗΛΕΜΕΤΑΦΟΡΑΣ (Outlier Rejection) ---
-            // Αν η απόσταση είναι παράλογα μεγάλη (π.χ. > 50μ σε ένα δευτερόλεπτο), αγνόησε το σημείο
-            if (distance > 50f) {
+            // Αν η απόσταση είναι πολύ μεγάλη (>50μ), μάλλον είναι λάθος GPS
+            if (gpsDistance > 50f) {
                 previousLocation = location
+                lastFilterTime = currentTime
                 return@LocationListener
             }
 
-            // --- ΔΥΝΑΜΙΚΟ ΟΡΙΟ ΚΙΝΗΣΗΣ ---
-            // minMove: Τουλάχιστον 2.5 μέτρα ή το 25% της ακρίβειας (για να αποφύγουμε το drift)
-            val minMove = maxOf(2.5f, location.accuracy * 0.25f)
+            // --- ΑΠΛΟ ΦΙΛΤΡΟ ΜΕ ΒΑΣΗ ΤΗΝ ΑΚΡΙΒΕΙΑ ---
+            // Το ελάχιστο όριο κίνησης εξαρτάται από την ακρίβεια
+            val minMove = maxOf(3.0f, location.accuracy * 0.3f)
 
-            // Προσθήκη απόστασης με τη λογική πεζοπορίας
-            if (distance >= minMove && (isMovingBySteps || currentSpeedKmH > 0.8f)) {
-                totalDistance += distance
+            // --- ΑΝΙΧΝΕΥΣΗ ΑΚΙΝΗΣΙΑΣ (για φανάρια) ---
+            // Αν η ταχύτητα είναι σχεδόν μηδέν και η απόσταση μικρή, μην προσθέτεις
+            val isProbablyStationary = currentSpeedKmH < 0.5f && gpsDistance < 5f
+
+            if (gpsDistance >= minMove && !isProbablyStationary) {
+                totalDistance += gpsDistance
+                // --- ΕΝΗΜΕΡΩΣΗ NOTIFICATION ΜΕ ΣΤΑΤΙΣΤΙΚΑ ---
+                val elapsedTimeSeconds = (System.currentTimeMillis() - startTime) / 1000
+                updateNotification(totalDistance, elapsedTimeSeconds)
+                // Χρησιμοποιούμε ΜΟΝΟ την απόσταση GPS χωρίς καμία ανάμειξη βημάτων
+                isPointValid = true
             }
         }
 
-        // --- ΒΕΛΤΙΩΜΕΝΟΣ ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ (Geometry Logic) ---
+        // --- ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ (τον κρατάμε ως έχει) ---
         altitudeBuffer.add(Triple(totalDistance, location.altitude, location))
 
         while (altitudeBuffer.isNotEmpty() && (totalDistance - altitudeBuffer.first().first) > 65f) {
@@ -180,7 +231,6 @@ class LocationTrackingService : Service(), SensorEventListener {
             if (horizontalDist > 15f) {
                 val altDiff = location.altitude - backPoint.second
 
-                // Φιλτράρισμα θορύβου υψομέτρου
                 if (Math.abs(altDiff) > 1.2) {
                     val calculatedGrade = (altDiff / horizontalDist) * 100
                     currentGrade = (currentGrade * 0.7) + (calculatedGrade * 0.3)
@@ -197,6 +247,7 @@ class LocationTrackingService : Service(), SensorEventListener {
             setPackage(packageName)
             putExtra("lat", location.latitude)
             putExtra("lng", location.longitude)
+            putExtra("is_valid", isPointValid)
             putExtra("distance", totalDistance)
             putExtra("current_speed", currentSpeedKmH)
             putExtra("accuracy", location.accuracy)
@@ -206,10 +257,10 @@ class LocationTrackingService : Service(), SensorEventListener {
         }
         sendBroadcast(intent)
 
-        // --- Η ΚΡΙΣΙΜΗ ΔΙΟΡΘΩΣΗ ---
-        // Ενημερώνουμε ΠΑΝΤΑ το previousLocation για να μη δημιουργούνται "άλματα" (spikes)
-        // όταν το GPS ξαναβρίσκει σήμα ή όταν ξαναξεκινάμε μετά από στάση.
+        // --- ΕΝΗΜΕΡΩΣΗ ΜΕΤΑΒΛΗΤΩΝ ---
         previousLocation = location
+        lastFilterTime = currentTime
+        lastStepsForFilter = currentSteps
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -217,6 +268,7 @@ class LocationTrackingService : Service(), SensorEventListener {
     override fun onDestroy() {
         super.onDestroy()
         locationManager.removeUpdates(locationListener)
+        statsHandler.removeCallbacks(statsRunnable)
         // Μηδενισμός για την επόμενη χρήση
         sensorManager.unregisterListener(this) // Αποδέσμευση αισθητήρα
         totalDistance = 0f
