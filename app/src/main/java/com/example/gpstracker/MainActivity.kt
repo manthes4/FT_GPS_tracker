@@ -1124,37 +1124,50 @@ $coords
     }
 
     private fun openFileChooser() {
-        val path = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
-            "FT Gps Tracker"
-        )
+        // 1. Εύρεση όλων των πιθανών φακέλων (SD και Εσωτερική)
+        val externalDirs = getExternalFilesDirs(null)
+        val allFiles = mutableListOf<File>()
 
-        if (!path.exists() || !path.isDirectory) {
-            showCustomToast("Ο φάκελος FT Gps Tracker δεν βρέθηκε")
-            return
+        // Λίστα με τα paths που θέλουμε να ελέγξουμε
+        val pathsToSearch = mutableListOf<File>()
+
+        // Προσθήκη Εσωτερικής Μνήμης (Documents)
+        pathsToSearch.add(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "FT Gps Tracker"))
+
+        // Προσθήκη SD Κάρτας (αν υπάρχει)
+        if (externalDirs.size > 1 && externalDirs[1] != null) {
+            val sdRoot = externalDirs[1].absolutePath.split("/Android")[0]
+            pathsToSearch.add(File(File(sdRoot, "Documents"), "FT Gps Tracker"))
         }
 
-        val files = path.listFiles { file -> file.extension.lowercase() == "kml" }
+        // 2. Συλλογή αρχείων KML από όλες τις τοποθεσίες
+        for (path in pathsToSearch) {
+            if (path.exists() && path.isDirectory) {
+                val found = path.listFiles { file -> file.extension.lowercase() == "kml" }
+                if (found != null) {
+                    allFiles.addAll(found)
+                }
+            }
+        }
 
-        if (files.isNullOrEmpty()) {
+        if (allFiles.isEmpty()) {
             showCustomToast("Δεν βρέθηκαν αρχεία KML")
             return
         }
 
-        // Ταξινόμηση: Τα πιο πρόσφατα αρχεία πάνω-πάνω
-        val sortedFiles = files.sortedByDescending { it.lastModified() }
+        // 3. Ταξινόμηση όλων των αρχείων μαζί (Τα πιο πρόσφατα πάνω-πάνω)
+        val sortedFiles = allFiles.sortedByDescending { it.lastModified() }
 
-        // Δημιουργία της λίστας δεδομένων (Όνομα και Ημερομηνία)
+        // 4. Δημιουργία της λίστας δεδομένων
         val displayList = sortedFiles.map { file ->
-            val date = SimpleDateFormat(
-                "dd/MM/yyyy HH:mm",
-                Locale.getDefault()
-            ).format(Date(file.lastModified()))
-            mapOf("name" to file.name, "date" to date)
+            val date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(file.lastModified()))
+
+            // Προαιρετικά: Προσθέτουμε ένα εικονίδιο ή κείμενο αν είναι στην SD
+            val locationTag = if (file.absolutePath.contains("storage/emulated/0")) " [Internal]" else " [SD]"
+
+            mapOf("name" to (file.name), "date" to "$date$locationTag")
         }
 
-        // Χρήση SimpleAdapter για εμφάνιση δύο γραμμών (Title και Subtitle)
-// Χρήση SimpleAdapter με παρέμβαση στον κώδικα για το περιθώριο
         val adapter = android.widget.SimpleAdapter(
             this,
             displayList,
@@ -1163,30 +1176,17 @@ $coords
             intArrayOf(android.R.id.text1, android.R.id.text2)
         )
 
-        // Παρέμβαση μέσω ViewBinder για προσθήκη περιθωρίου στο text2 (ημερομηνία)
+        // ViewBinder για το padding (όπως το είχες)
         adapter.viewBinder = android.widget.SimpleAdapter.ViewBinder { view, data, _ ->
             if (view.id == android.R.id.text2) {
                 val textView = view as TextView
                 textView.text = data.toString()
-                // Προσθέτουμε 8dp περιθώριο στο πάνω μέρος (μετατροπή dp σε px)
-                val paddingInDp = 8
-                val scale = resources.displayMetrics.density
-                val paddingInPx = (paddingInDp * scale + 0.5f).toInt()
-
-                // Διατηρούμε τα υπάρχοντα padding και αλλάζουμε μόνο το top
-                textView.setPadding(
-                    textView.paddingLeft,
-                    paddingInPx,
-                    textView.paddingRight,
-                    textView.paddingBottom
-                )
+                val paddingInPx = (8 * resources.displayMetrics.density + 0.5f).toInt()
+                textView.setPadding(textView.paddingLeft, paddingInPx, textView.paddingRight, textView.paddingBottom)
                 true
-            } else {
-                false
-            }
+            } else false
         }
 
-        // Δημιουργία του διαλόγου χωρίς να τον εμφανίσουμε αμέσως (.create() αντί για .show())
         val dialog = AlertDialog.Builder(this)
             .setTitle("Επιλέξτε Διαδρομή")
             .setAdapter(adapter) { _, which ->
@@ -1196,50 +1196,36 @@ $coords
             .setNegativeButton("Ακύρωση", null)
             .create()
 
-        // Εμφάνιση του διαλόγου
-        // Εμφάνιση του διαλόγου
         dialog.show()
 
-        // Προσθήκη κόκκινης διαχωριστικής γραμμής 2dp
-        // Ρύθμιση της διαχωριστικής γραμμής
+        // Ρύθμιση διαχωριστικής γραμμής
         val metrics = resources.displayMetrics
-        val dividerHeight = (2 * metrics.density).toInt() // Πάχος 2dp
-        val sideMargin = (20 * metrics.density).toInt()   // Κενό 20dp αριστερά και δεξιά
-
-        // Δημιουργούμε ένα κόκκινο χρώμα
+        val dividerHeight = (2 * metrics.density).toInt()
+        val sideMargin = (20 * metrics.density).toInt()
         val redDrawable = android.graphics.drawable.ColorDrawable(android.graphics.Color.RED)
-
-
-        // Το τυλίγουμε σε ένα InsetDrawable για να του δώσουμε περιθώρια
-        val insetDivider = android.graphics.drawable.InsetDrawable(
-            redDrawable,
-            sideMargin, 2, sideMargin, 2
-        )
+        val insetDivider = android.graphics.drawable.InsetDrawable(redDrawable, sideMargin, 2, sideMargin, 2)
 
         dialog.listView.divider = insetDivider
         dialog.listView.dividerHeight = dividerHeight
-        // Τώρα που ο διάλογος εμφανίστηκε, μπορούμε να πιάσουμε τη ListView του
-        dialog.listView.setOnItemLongClickListener { _, _, which, _ ->
-            // ... ο υπόλοιπος κώδικας για τη διαγραφή παραμένει ίδιος ...
-            val fileToDelete = sortedFiles[which]
 
-            // Εμφάνιση επιβεβαίωσης για διαγραφή
+        // Long Click για Διαγραφή
+        dialog.listView.setOnItemLongClickListener { _, _, which, _ ->
+            val fileToDelete = sortedFiles[which]
             AlertDialog.Builder(this)
                 .setTitle("Διαγραφή αρχείου")
                 .setMessage("Θέλετε να διαγράψετε το αρχείο:\n${fileToDelete.name}?")
                 .setPositiveButton("Διαγραφή") { _, _ ->
                     if (fileToDelete.delete()) {
                         showCustomToast("Το αρχείο διαγράφηκε")
-                        dialog.dismiss() // Κλείνουμε τον αρχικό διάλογο
-                        openFileChooser() // Τον ξανανοίγουμε για να ανανεωθεί η λίστα
+                        dialog.dismiss()
+                        openFileChooser()
                     } else {
                         showCustomToast("Αποτυχία διαγραφής")
                     }
                 }
                 .setNegativeButton("Ακύρωση", null)
                 .show()
-
-            true // Επιστρέφουμε true για να δείξουμε ότι το κλικ καταναλώθηκε
+            true
         }
     }
 
