@@ -63,14 +63,14 @@
 
     <LinearLayout
         android:id="@+id/stats_container"
-        android:visibility="gone"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_margin="4dp"
-        android:background="#801B1D2D"
+        android:background="@drawable/info_window_background2"
         android:elevation="4dp"
         android:orientation="horizontal"
         android:padding="12dp"
+        android:visibility="gone"
         android:weightSum="5"
         app:layout_constraintBottom_toTopOf="@+id/button_container"
         app:layout_constraintEnd_toEndOf="parent"

@@ -1250,8 +1250,9 @@ $coords
         } else rawDate
     }
 
-    private fun formatStatsForDisplay(kmlDescription: String): String {
+    private fun formatStatsForDisplay(prettyDate: String, kmlDescription: String): String {
         return try {
+            // Το kmlDescription από την parseKmlFile είναι πλέον: "⏱️ 00:10:00 | 📍 1.5 | ⚡ 5.0 | 👣 2000"
             val parts = kmlDescription.split("|").map { it.trim() }
 
             val time = parts.getOrNull(0) ?: "⏱️ --"
@@ -1259,13 +1260,13 @@ $coords
             val speed = parts.getOrNull(2) ?: "⚡ --"
             val steps = parts.getOrNull(3) ?: "👣 --"
 
-            // Σειρά 1: Χρόνος και Απόσταση
-            // Σειρά 2: Ταχύτητα και Βήματα
-            "$time &nbsp;&nbsp;&nbsp;&nbsp; $dist<br/>" +
-                    "$speed &nbsp;&nbsp;&nbsp;&nbsp; $steps"
+// Σειρά 1: Χρόνος και Απόσταση (με "χλμ")
+            // Σειρά 2: Ταχύτητα (με "Avg") και Βήματα (με "Steps")
+            "$time &nbsp;&nbsp;&nbsp; $dist χλμ &nbsp;&nbsp;<br/>" +
+            "&nbsp;&nbsp;&nbsp; $speed km/h &nbsp;&nbsp;&nbsp; $steps Steps &nbsp;&nbsp;"
 
         } catch (e: Exception) {
-            kmlDescription
+            kmlDescription // fallback αν κάτι πάει στραβά
         }
     }
 
@@ -1284,21 +1285,29 @@ $coords
                 val prettyDate = formatKmlDate(datePart)
 
                 kmlGreenMarker?.let { marker ->
-                    // 1. Σύνδεση με το XML
-                    marker.infoWindow = MarkerInfoWindow(R.layout.custom_info_window, map)
+                    marker.closeInfoWindow()
 
-                    // 2. Ετοιμασία ημερομηνίας για τον Τίτλο
+                    // 1. Σύνδεση με το custom layout
+                    marker.infoWindow = CustomKmlInfoWindow(map)
+
+                    // 2. Δεδομένα
                     val datePart = rawFilename.removePrefix("route_").split("_")[0]
                     val prettyDate = formatKmlDate(datePart)
-                    marker.title = "📊 Στατιστικά: $prettyDate"
 
-                    // 3. Ετοιμασία στατιστικών για το Description
-                    val htmlStats = formatStatsForDisplay(kmlDescription)
+                    marker.title = "📅 $prettyDate"
 
-                    // Χρησιμοποιούμε Html.fromHtml για να δουλέψει το <br/> μέσα στο TextView
-                    marker.snippet = android.text.Html.fromHtml(htmlStats, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
+                    val rawStats = marker.snippet ?: ""
+                    // Προσοχή: Εδώ περνάμε το HTML string
+                    marker.snippet = formatStatsForDisplay(prettyDate, rawStats)
 
+                    // ΤΟ ΚΛΕΙΔΙ ΓΙΑ ΤΟ ΥΨΟΣ:
+                    // Το (0.5f, 0.0f) το βάζει ακριβώς πάνω από το marker.
+                    // Αν θέλουμε να το "πετάξουμε" πιο ψηλά, χρησιμοποιούμε αρνητική τιμή στο y (π.χ. -0.2f)
+                    marker.setInfoWindowAnchor(0.5f, -0.4f)
+
+                    // 4. Εμφάνιση
                     marker.showInfoWindow()
+                    map.invalidate()
                 }
 
                 map.controller.animateTo(points.first())
@@ -1479,22 +1488,18 @@ $coords
                     val startPoint = pathPoints.first()
                     kmlGreenMarker = Marker(map).apply {
                         position = startPoint
-                        icon = ContextCompat.getDrawable(
-                            this@MainActivity,
-                            R.drawable.green_marker
-                        )
+                        icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.green_marker)
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                        val infoText = StringBuilder()
-                        infoText.append("⏱ Χρόνος: ${time ?: "-"}\n")
-                        infoText.append("📏 Διαδρομή: ${distance ?: "-"} km\n")
-                        infoText.append("🚴 Μέση Ταχύτητα: ${avgSpeed ?: "-"} km/h\n")
-                        infoText.append("👣 Βήματα: ${steps ?: "-"}")
 
-                        title = "Στατιστικά Διαδρομής"
-                        snippet = infoText.toString()
-                        showInfoWindow()
+                        // ΜΗΝ βάλεις title, snippet ή showInfoWindow εδώ.
+                        // Θα τα βάλουμε στην loadKmlFromFile για να δουλέψει το Custom XML.
                     }
                     map.overlays.add(kmlGreenMarker)
+
+                    // Αποθήκευσε το description (τα στατιστικά) σε μια μεταβλητή
+                    // ή στο snippet προσωρινά για να το βρει η loadKmlFromFile
+                    val infoText = "⏱️ ${time ?: "-"} | 📍 ${distance ?: "-"} | ⚡ ${avgSpeed ?: "-"} | 👣 ${steps ?: "-"}"
+                    kmlGreenMarker?.snippet = infoText
                 }
 
                 // Μοβ marker στο τέλος
@@ -1917,5 +1922,22 @@ $coords
         // 9. Ανανέωση χάρτη
         map.invalidate()
         showCustomToast("Ο χάρτης καθαρίστηκε")
+    }
+}
+
+class CustomKmlInfoWindow(mapView: MapView) : MarkerInfoWindow(R.layout.custom_info_window, mapView) {
+    override fun onOpen(item: Any?) {
+        val marker = item as? Marker ?: return
+        val titleView = mView.findViewById<TextView>(R.id.bubble_title)
+        val descView = mView.findViewById<TextView>(R.id.bubble_description)
+
+        // Λευκό κείμενο για το Dark Mode style
+        titleView?.setTextColor(Color.WHITE)
+        descView?.setTextColor(Color.parseColor("#EEEEEE"))
+
+        titleView?.text = android.text.Html.fromHtml(marker.title ?: "", android.text.Html.FROM_HTML_MODE_LEGACY)
+        descView?.text = android.text.Html.fromHtml(marker.snippet ?: "", android.text.Html.FROM_HTML_MODE_LEGACY)
+
+        mView.visibility = View.VISIBLE
     }
 }
