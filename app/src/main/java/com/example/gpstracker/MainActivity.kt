@@ -1194,6 +1194,22 @@ $coords
                 loadKmlFromFile(selectedFile)
             }
             .setNegativeButton("Ακύρωση", null)
+            .setNeutralButton("Διαγραφή Όλων") { _, _ ->
+                // Διάλογος επιβεβαίωσης για τη διαγραφή όλων
+                AlertDialog.Builder(this)
+                    .setTitle("Προσοχή!")
+                    .setMessage("Είστε σίγουροι ότι θέλετε να διαγράψετε ΚΑΙ ΤΑ ${sortedFiles.size} αρχεία; Αυτή η ενέργεια δεν αναιρείται.")
+                    .setPositiveButton("Διαγραφή όλων") { _, _ ->
+                        var deletedCount = 0
+                        for (file in sortedFiles) {
+                            if (file.delete()) deletedCount++
+                        }
+                        showCustomToast("Διαγράφηκαν $deletedCount αρχεία")
+                        openFileChooser() // Ανανέωση της λίστας (θα δείξει "Δεν βρέθηκαν αρχεία")
+                    }
+                    .setNegativeButton("Ακύρωση", null)
+                    .show()
+            }
             .create()
 
         dialog.show()
