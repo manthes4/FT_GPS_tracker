@@ -81,6 +81,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.widget.LinearLayout
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.TilesOverlay
+import org.osmdroid.views.overlay.infowindow.MarkerInfoWindow
 
 private var currentSearchMarker: Marker? = null
 
@@ -166,6 +167,11 @@ class MainActivity : AppCompatActivity() {
     private var isPlanningEnabled = false
 
     private var globalMarkerIcon: Drawable? = null // Αποθηκεύει το εικονίδιο μόνιμα
+
+    private var lastTimeStr: String = "00:00:00"
+    private var lastDistanceStr: String = "0.00 km"
+    private var lastSpeedStr: String = "0.0 km/h"
+    private var lastSteps: String = "0"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -815,6 +821,13 @@ class MainActivity : AppCompatActivity() {
                 }
                 map.overlays.add(startMarker)
             }
+
+            // --- ΠΡΟΣΘΗΚΗ ΓΙΑ ΤΟ KML (Δεν επηρεάζει το UI) ---
+            lastDistanceStr = tvDistance.text.toString()
+            lastSpeedStr = tvCurrentSpeed.text.toString() + " km/h"
+            lastSteps = tvSteps.text.toString()
+            lastTimeStr = tvTime.text.toString()
+            // -----------------------------------------------
             map.invalidate()
         }
     }
@@ -868,27 +881,31 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun saveRouteDataLocally() {
-        if (pathPoints.isEmpty()) {
-            Log.e("GPS_TRACKER", "Δεν υπάρχουν σημεία για αποθήκευση")
-            return
-        }
+        if (pathPoints.isEmpty()) return
 
-        // Δημιουργία ονόματος αρχείου βάσει ημερομηνίας/ώρας (π.χ. route_20240520_1530.kml)
-        val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault())
-            .format(java.util.Date())
-        val internalFileName = "route_$timestamp.kml"
+        val fileDate = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.getDefault()).format(java.util.Date())
+        val fileTime = java.text.SimpleDateFormat("HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
+        val prettyDate = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).format(java.util.Date())
 
-        // Δημιουργία του περιεχομένου KML
+        val internalFileName = "route_${fileDate}_$fileTime.kml"
+
+        // Χτίζουμε το περιεχόμενο με αλλαγές γραμμής (\n) για να μην είναι όλα μαζί
+        // Χρησιμοποιούμε απλά emoji που υποστηρίζονται από το Android InfoWindow
+        val statsForKml = "⏱️ $lastTimeStr | 📍 $lastDistanceStr | ⚡ $lastSpeedStr | 👣 $lastSteps βήματα"
+
         val kmlHeader = """<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
-    <name>Διαδρομή $timestamp</name>
+    <name>Διαδρομή $prettyDate</name>
     <Placemark>
+      <name>Στατιστικά Διαδρομής</name>
+      <description><![CDATA[$statsForKml]]></description>
       <LineString>
         <coordinates>"""
 
-        val coordinates = pathPoints.joinToString(" ") { "${it.longitude},${it.latitude},0" }
+        // Το CDATA βοηθάει να διατηρηθούν τα emoji και οι ειδικοί χαρακτήρες
 
+        val coordinates = pathPoints.joinToString(" ") { "${it.longitude},${it.latitude},0" }
         val kmlFooter = """
         </coordinates>
       </LineString>
@@ -899,18 +916,13 @@ class MainActivity : AppCompatActivity() {
         val fullKml = kmlHeader + coordinates + kmlFooter
 
         try {
-            // Αποθήκευση στον εσωτερικό φάκελο (data/data/com.example.gpstracker/files)
             val file = java.io.File(filesDir, internalFileName)
-            file.writeText(fullKml)
+            file.writeText(fullKml, Charsets.UTF_8) // Σημαντικό: UTF-8 για τα emoji
 
-            // Σώζουμε ΜΟΝΟ το όνομα του αρχείου στα SharedPreferences των στατιστικών
-            // ώστε η StatsActivity να ξέρει ποιο αρχείο αντιστοιχεί σε αυτή τη διαδρομή
             val sharedPrefs = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
             sharedPrefs.edit().putString("last_kml_file", internalFileName).apply()
-
-            Log.d("GPS_TRACKER", "Το αρχείο σώθηκε κρυφά: $internalFileName")
         } catch (e: Exception) {
-            Log.e("GPS_TRACKER", "Σφάλμα κρυφής αποθήκευσης: ${e.message}")
+            Log.e("GPS_TRACKER", "Error saving: ${e.message}")
         }
     }
 
@@ -995,52 +1007,95 @@ class MainActivity : AppCompatActivity() {
         return String.format("%02d:%02d:%02d", hours, minutes, secs)
     }
 
+    private fun formatKmlDate(rawDate: String): String {
+        return try {
+            if (rawDate.length >= 8) {
+                val year = rawDate.substring(0, 4)
+                val month = rawDate.substring(4, 6)
+                val day = rawDate.substring(6, 8)
+                "$day/$month/$year"
+            } else {
+                rawDate
+            }
+        } catch (e: Exception) {
+            rawDate
+        }
+    }
+
     private fun saveStats(time: String, distance: String, avgSpeed: String, steps: String) {
         // Α. Δημιουργούμε το κρυφό KML αρχείο και παίρνουμε το όνομά του
-        val kmlFileName = saveKmlInternal()
+        val kmlFileName = saveKmlInternal(time, distance, avgSpeed, steps)
 
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         val stats = sharedPreferences.getString("stats", "") ?: ""
-        val date = SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(Date())
 
-        // Β. Προσθέτουμε το kmlFileName ως 6ο στοιχείο (διαχωρισμένο με κενό)
+        // Χρησιμοποιούμε displayDate ίδια με αυτή που μπήκε στο KML για συνέπεια
+        val displayDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
+
         // Format: Ημερομηνία Χρόνος Απόσταση Ταχύτητα Βήματα Όνομα_Αρχείου
-        val newStat = "$date $time $distance $avgSpeed $steps $kmlFileName\n"
+        val newStat = "$displayDate $time $distance $avgSpeed $steps $kmlFileName\n"
 
         sharedPreferences.edit().putString("stats", stats + newStat).apply()
         Log.d("GPS_TRACKER", "Stats saved with KML: $kmlFileName")
     }
 
-    private fun saveKmlInternal(): String {
+    private fun saveKmlInternal(
+        time: String,
+        distance: String,
+        avgSpeed: String,
+        steps: String
+    ): String {
+
         if (pathPoints.isEmpty()) return "no_path"
 
-        // Μοναδικό όνομα αρχείου π.χ. route_20240520_153022.kml
+        // Όνομα αρχείου (παραμένει σε yyyyMMdd_HHmmss για μοναδικότητα)
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         val fileName = "route_$timestamp.kml"
 
-        // Δημιουργία περιεχομένου KML
-        val kmlHeader = """<?xml version="1.0" encoding="UTF-8"?>
-<kml xmlns="http://www.opengis.net/kml/2.2">
-  <Document>
-    <name>Διαδρομή $timestamp</name>
-    <Placemark>
-      <LineString><coordinates>"""
+        // Ημερομηνία για εμφάνιση στα stats ή στο KML (dd/MM/yyyy)
+        val displayDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
 
         val coords = pathPoints.joinToString(" ") { "${it.longitude},${it.latitude},0" }
 
-        val kmlFooter = """</coordinates></LineString>
-    </Placemark>
-  </Document>
-</kml>"""
+        val kml = """
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+<Document>
+
+<name>Διαδρομή $timestamp</name>
+
+<Placemark>
+
+<ExtendedData>
+<Data name="time"><value>$time</value></Data>
+<Data name="distance"><value>$distance</value></Data>
+<Data name="avg_speed"><value>$avgSpeed</value></Data>
+<Data name="steps"><value>$steps</value></Data>
+</ExtendedData>
+
+<LineString>
+<coordinates>
+$coords
+</coordinates>
+</LineString>
+
+</Placemark>
+</Document>
+</kml>
+""".trimIndent()
 
         return try {
-            // Αποθήκευση στον εσωτερικό φάκελο της εφαρμογής (FilesDir)
+
             val file = File(filesDir, fileName)
-            file.writeText(kmlHeader + coords + kmlFooter)
-            fileName // Επιστρέφουμε το όνομα για να γραφτεί στα stats
+            file.writeText(kml)
+
+            fileName
+
         } catch (e: Exception) {
-            Log.e("SAVE_KML", "Error: ${e.message}")
+
+            Log.e("SAVE_KML", e.message ?: "error")
             "error_kml"
+
         }
     }
 
@@ -1188,61 +1243,64 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun getStatsFromFilename(filename: String): String {
+    private fun formatDate(rawDate: String): String {
+        return if (rawDate.length == 8) {
+            // Από 20260305 σε 05/03/2026
+            "${rawDate.substring(6, 8)}/${rawDate.substring(4, 6)}/${rawDate.substring(0, 4)}"
+        } else rawDate
+    }
+
+    private fun formatStatsForDisplay(kmlDescription: String): String {
         return try {
-            val cleanName = filename.replace(".kml", "")
-            val parts = cleanName.split("_")
+            val parts = kmlDescription.split("|").map { it.trim() }
 
-            val date = parts.getOrNull(1) ?: "-"
-            val time = parts.getOrNull(2)?.replace("-", ":") ?: "00:00:00"
-            val dist = parts.find { it.contains("km") } ?: "0.00km"
-            val steps = parts.find { it.contains("steps") }?.replace("steps", "") ?: "0"
+            val time = parts.getOrNull(0) ?: "⏱️ --"
+            val dist = parts.getOrNull(1) ?: "📍 --"
+            val speed = parts.getOrNull(2) ?: "⚡ --"
+            val steps = parts.getOrNull(3) ?: "👣 --"
 
-            "<b><big>📅 &nbsp;&nbsp;$date &nbsp;&nbsp;&nbsp; 👣 $steps βήματα</big></b><br/>" +
-                    "<b><big>📍 &nbsp;&nbsp;$dist &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; ⏱️ $time</big></b>"
+            // Σειρά 1: Χρόνος και Απόσταση
+            // Σειρά 2: Ταχύτητα και Βήματα
+            "$time &nbsp;&nbsp;&nbsp;&nbsp; $dist<br/>" +
+                    "$speed &nbsp;&nbsp;&nbsp;&nbsp; $steps"
 
         } catch (e: Exception) {
-            "<b><big>Πληροφορίες διαδρομής</big></b>"
+            kmlDescription
         }
     }
 
     private fun loadKmlFromFile(file: File) {
         try {
             val inputStream = file.inputStream()
-            val filename = file.name
-
-            // 1. Εκτελείται η υπάρχουσα συνάρτηση που σχεδιάζει τα πάντα
+            val rawFilename = file.nameWithoutExtension
             parseKmlFile(inputStream)
             inputStream.close()
 
-            // 2. Παίρνουμε τα σημεία από την Polyline που μόλις δημιούργησε η parseKmlFile
+            val kmlDescription = kmlRoute?.snippet ?: kmlGreenMarker?.snippet ?: ""
             val points = kmlRoute?.points
 
             if (points != null && points.isNotEmpty()) {
-                val statsSummary = getStatsFromFilename(filename)
+                val datePart = rawFilename.removePrefix("route_").split("_")[0]
+                val prettyDate = formatKmlDate(datePart)
 
-                // 3. Δημιουργούμε έναν αόρατο ή διάφανο Marker για να δείξει το InfoWindow
-                val infoMarker = Marker(map)
-                infoMarker.position = points.first() // Στο πρώτο σημείο
+                kmlGreenMarker?.let { marker ->
+                    // 1. Σύνδεση με το XML
+                    marker.infoWindow = MarkerInfoWindow(R.layout.custom_info_window, map)
 
-                // Αν θέλεις να φαίνεται πάνω από τον πράσινο marker:
-                infoMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    // 2. Ετοιμασία ημερομηνίας για τον Τίτλο
+                    val datePart = rawFilename.removePrefix("route_").split("_")[0]
+                    val prettyDate = formatKmlDate(datePart)
+                    marker.title = "📊 Στατιστικά: $prettyDate"
 
-                // Για να μην φαίνεται δεύτερο εικονίδιο, μπορούμε να του βάλουμε
-                // ένα διάφανο χρώμα ή να χρησιμοποιήσουμε τον ήδη υπάρχοντα kmlGreenMarker
-                kmlGreenMarker?.let {
-                    it.title = "Στατιστικά Διαδρομής"
-                    it.snippet = statsSummary
-                    it.showInfoWindow() // Εμφάνιση των stats
-                } ?: run {
-                    // Αν για κάποιο λόγο δεν υπάρχει ο kmlGreenMarker
-                    infoMarker.title = "Στατιστικά Διαδρομής"
-                    infoMarker.snippet = statsSummary
-                    map.overlays.add(infoMarker)
-                    infoMarker.showInfoWindow()
+                    // 3. Ετοιμασία στατιστικών για το Description
+                    val htmlStats = formatStatsForDisplay(kmlDescription)
+
+                    // Χρησιμοποιούμε Html.fromHtml για να δουλέψει το <br/> μέσα στο TextView
+                    marker.snippet = android.text.Html.fromHtml(htmlStats, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
+
+                    marker.showInfoWindow()
                 }
 
-                // Εστίαση στην αρχή
                 map.controller.animateTo(points.first())
                 map.invalidate()
             }
@@ -1324,13 +1382,33 @@ class MainActivity : AppCompatActivity() {
             var inCoordinates = false
             val pathPoints = mutableListOf<GeoPoint>()
 
+            // Για τα στατιστικά
+            var time: String? = null
+            var distance: String? = null
+            var avgSpeed: String? = null
+            var steps: String? = null
+
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
-                        if (parser.name.equals("Placemark", true)) {
-                            inPlacemark = true
-                        } else if (inPlacemark && parser.name.equals("coordinates", true)) {
-                            inCoordinates = true
+                        when {
+                            parser.name.equals("Placemark", true) -> inPlacemark = true
+
+                            inPlacemark && parser.name.equals("coordinates", true) -> inCoordinates = true
+
+                            inPlacemark && parser.name.equals("Data", true) -> {
+                                val name = parser.getAttributeValue(null, "name")
+                                parser.nextTag() // πάμε στο <value>
+                                if (parser.name.equals("value", true)) {
+                                    val value = parser.nextText()
+                                    when (name) {
+                                        "time" -> time = value
+                                        "distance" -> distance = value
+                                        "avg_speed" -> avgSpeed = value
+                                        "steps" -> steps = value
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -1338,7 +1416,6 @@ class MainActivity : AppCompatActivity() {
                         if (inCoordinates) {
                             val coordinates = parser.text.trim()
                             val coordsArray = coordinates.split(" ")
-
                             for (coord in coordsArray) {
                                 val coords = coord.split(",")
                                 if (coords.size >= 2) {
@@ -1351,10 +1428,9 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     XmlPullParser.END_TAG -> {
-                        if (parser.name.equals("coordinates", true)) {
-                            inCoordinates = false
-                        } else if (parser.name.equals("Placemark", true)) {
-                            inPlacemark = false
+                        when {
+                            parser.name.equals("coordinates", true) -> inCoordinates = false
+                            parser.name.equals("Placemark", true) -> inPlacemark = false
                         }
                     }
                 }
@@ -1362,21 +1438,18 @@ class MainActivity : AppCompatActivity() {
             }
 
             if (pathPoints.isNotEmpty()) {
-                // Αφαίρεση παλιών διαδρομών από τον χάρτη αν υπάρχουν
+                // Αφαίρεση προηγούμενων overlays
                 kmlRoute?.let { map.overlays.remove(it) }
                 kmlBorderRoute?.let { map.overlays.remove(it) }
-                // Remove the initial location marker
                 initialLocationMarker?.let { map.overlays.remove(it) }
-                initialLocationMarker = null // Set to null to prevent further use
+                initialLocationMarker = null
                 route?.let { map.overlays.remove(it) }
                 borderRoute?.let { map.overlays.remove(it) }
-
-                // Αφαίρεση όλων των markers
                 startMarker?.let { map.overlays.remove(it) }
                 endMarker?.let { map.overlays.remove(it) }
                 greenMarker?.let { map.overlays.remove(it) }
 
-                // Δημιουργία περιγράμματος Polyline για το KML route
+                // Δημιουργία Polyline για περίγραμμα
                 kmlBorderRoute = Polyline().apply {
                     outlinePaint.isAntiAlias = true
                     outlinePaint.color = android.graphics.Color.WHITE
@@ -1386,7 +1459,7 @@ class MainActivity : AppCompatActivity() {
                     outlinePaint.maskFilter = BlurMaskFilter(10f, BlurMaskFilter.Blur.NORMAL)
                 }
 
-                // Δημιουργία κύριας Polyline για τη διαδρομή KML
+                // Κύρια Polyline
                 kmlRoute = Polyline().apply {
                     outlinePaint.isAntiAlias = true
                     outlinePaint.color = android.graphics.Color.YELLOW
@@ -1395,15 +1468,13 @@ class MainActivity : AppCompatActivity() {
                     outlinePaint.strokeCap = Paint.Cap.ROUND
                 }
 
-                // Προσθήκη των σημείων και στις δύο γραμμές
+                // Προσθήκη σημείων
                 kmlBorderRoute?.setPoints(pathPoints)
                 kmlRoute?.setPoints(pathPoints)
-
-                // Προσθήκη των Polylines στον χάρτη: πρώτα το περίγραμμα, μετά η κύρια διαδρομή
                 kmlBorderRoute?.let { map.overlays.add(it) }
                 kmlRoute?.let { map.overlays.add(it) }
 
-                // Δημιουργία πράσινου marker στην αρχή
+                // Πράσινο marker στην αρχή
                 if (pathPoints.isNotEmpty()) {
                     val startPoint = pathPoints.first()
                     kmlGreenMarker = Marker(map).apply {
@@ -1411,13 +1482,22 @@ class MainActivity : AppCompatActivity() {
                         icon = ContextCompat.getDrawable(
                             this@MainActivity,
                             R.drawable.green_marker
-                        ) // πράσινο marker
+                        )
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        val infoText = StringBuilder()
+                        infoText.append("⏱ Χρόνος: ${time ?: "-"}\n")
+                        infoText.append("📏 Διαδρομή: ${distance ?: "-"} km\n")
+                        infoText.append("🚴 Μέση Ταχύτητα: ${avgSpeed ?: "-"} km/h\n")
+                        infoText.append("👣 Βήματα: ${steps ?: "-"}")
+
+                        title = "Στατιστικά Διαδρομής"
+                        snippet = infoText.toString()
+                        showInfoWindow()
                     }
                     map.overlays.add(kmlGreenMarker)
                 }
 
-// Δημιουργία μοβ marker στο τέλος
+                // Μοβ marker στο τέλος
                 if (pathPoints.isNotEmpty()) {
                     val endPoint = pathPoints.last()
                     kmlPurpleMarker = Marker(map).apply {
@@ -1425,16 +1505,13 @@ class MainActivity : AppCompatActivity() {
                         icon = ContextCompat.getDrawable(
                             this@MainActivity,
                             R.drawable.purple_marker
-                        ) // μοβ marker
+                        )
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                     }
                     map.overlays.add(kmlPurpleMarker)
                 }
 
-
-                // Ανανέωση του χάρτη
                 map.invalidate()
-
             } else {
                 showCustomToast("No coordinates found in KML file")
             }
