@@ -195,68 +195,53 @@ class LocationTrackingService : Service(), SensorEventListener {
     }
     private val locationListener = LocationListener { location ->
 
-        // --- 1. Βασικό φίλτρο ακρίβειας ---
+        // --- 1. ΦΙΛΤΡΟ ΑΚΡΙΒΕΙΑΣ ---
         if (location.accuracy > 45f) return@LocationListener
 
         var isPointValid = false
         currentSpeedKmH = location.speed * 3.6f
         val currentTime = System.currentTimeMillis()
 
-        // --- 2. Smoothing (consistently χρησιμοποιούμε το smoothed σημείο) ---
+        // --- 2. GPS SMOOTHING (μειώνει το jitter του GPS) ---
         if (!hasSmoothedPoint) {
             smoothedLat = location.latitude
             smoothedLng = location.longitude
             hasSmoothedPoint = true
         } else {
-            // Μπορείς να λάβεις το weighting σε 0.65/0.35 ή 0.7/0.3 όπως θες.
-            // Εδώ βάζω 0.65/0.35 για λίγο πιο responsive smoothing.
-            smoothedLat = smoothedLat * 0.65 + location.latitude * 0.35
-            smoothedLng = smoothedLng * 0.65 + location.longitude * 0.35
+            smoothedLat = smoothedLat * 0.7 + location.latitude * 0.3
+            smoothedLng = smoothedLng * 0.7 + location.longitude * 0.3
         }
 
-        // Δημιουργούμε ένα Location που αντιπροσωπεύει το smoothed σημείο
         val smoothedLocation = Location(location).apply {
             latitude = smoothedLat
             longitude = smoothedLng
-            // Κρατάμε την ακρίβεια/ταχύτητα/κλπ από το raw location
-            accuracy = location.accuracy
-            bearing = location.bearing
-            speed = location.speed
         }
 
-        // --- 3. Υπολογισμός απόστασης με βάση τα smoothed σημεία ---
+        // --- 3. ΥΠΟΛΟΓΙΣΜΟΣ ΑΠΟΣΤΑΣΗΣ ---
         if (previousLocation != null) {
-            // Χρησιμοποιούμε previousLocation που τώρα ΣΥΝΕΠΩΣ θα είναι smoothed Location
+
             val gpsDistance = previousLocation!!.distanceTo(smoothedLocation)
 
-            // Teleport / outlier rejection
+            // ΦΙΛΤΡΟ TELEPORT
             if (gpsDistance > 80f) {
-                // Μηδενίζουμε previous μόνο αν το jump είναι σαφώς λάθος
-                previousLocation = smoothedLocation
                 return@LocationListener
             }
 
-            // Αυξάνουμε το minMove ώστε να αποφύγουμε συσσώρευση μικρών αποστάσεων.
-            // Αυτό είναι σημαντικό για να πάρεις απόσταση πλησιέστερη στην "οπτική" διαδρομή.
-            val minMove = maxOf(3.0f, location.accuracy * 0.25f)
+            // ελάχιστη κίνηση
+            val minMove = maxOf(2.0f, location.accuracy * 0.12f)
 
-            // Ανίχνευση ακινησίας (π.χ. φανάρια)
+            // ανίχνευση ακινησίας
             val isProbablyStationary = currentSpeedKmH < 0.4f && gpsDistance < 3f
 
             if (gpsDistance >= minMove && !isProbablyStationary) {
-                // Αποφεύγουμε να προσθέτουμε πολύ μεγάλες μοναδιαίες αποστάσεις (προστασία)
-                if (gpsDistance < 100f) {
-                    totalDistance += gpsDistance
-                }
+
+                totalDistance += gpsDistance
                 isPointValid = true
             }
-        } else {
-            // Αν δεν υπήρχε προηγούμενο, δεν προσθέτουμε απόσταση — απλά θέτουμε προηγούμενο
-            isPointValid = false
         }
 
-        // --- 4. Κλίση (grade) όπως πριν, χρησιμοποιώντας raw location για vertical accuracy,
-        //      αλλά μπορείς να το αλλάξεις ώστε να χρησιμοποιεί smoothedLocation αν προτιμάς ---
+        // --- 4. ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ ---
+
         altitudeBuffer.add(Triple(totalDistance, location.altitude, location))
 
         while (altitudeBuffer.isNotEmpty() && (totalDistance - altitudeBuffer.first().first) > 65f) {
@@ -273,40 +258,49 @@ class LocationTrackingService : Service(), SensorEventListener {
             }
 
         if (backPoint != null && isAccurate) {
+
             val horizontalDist = backPoint.third.distanceTo(location)
+
             if (horizontalDist > 15f) {
+
                 val altDiff = location.altitude - backPoint.second
+
                 if (Math.abs(altDiff) > 1.2) {
+
                     val calculatedGrade = (altDiff / horizontalDist) * 100
                     currentGrade = (currentGrade * 0.7) + (calculatedGrade * 0.3)
                 }
+
                 if (Math.abs(currentGrade) < 0.6) currentGrade = 0.0
                 if (currentGrade > 25.0) currentGrade = 25.0
                 if (currentGrade < -25.0) currentGrade = -25.0
             }
         }
 
-        // --- 5. safe bearing ---
-        val safeBearing = if (location.speed > 0.5f) location.bearing else -1f
+        // --- 5. ΣΩΣΤΟ BEARING (όχι τρεμόπαιγμα όταν είσαι ακίνητος) ---
+        val safeBearing =
+            if (location.speed > 0.5f) location.bearing else -1f
 
-        // --- 6. Broadcast: Δίνουμε στο UI το SMOOTHED σημείο ώστε ο χάρτης και η απόσταση να ταιριάζουν ---
+
+        // --- ΑΠΟΣΤΟΛΗ ΔΕΔΟΜΕΝΩΝ ΣΤΟ UI ---
         val intent = Intent("LocationUpdate").apply {
             setPackage(packageName)
-            putExtra("lat", smoothedLocation.latitude)
-            putExtra("lng", smoothedLocation.longitude)
+            putExtra("lat", location.latitude)
+            putExtra("lng", location.longitude)
             putExtra("is_valid", isPointValid)
             putExtra("distance", totalDistance)
             putExtra("current_speed", currentSpeedKmH)
-            putExtra("accuracy", smoothedLocation.accuracy)
-            putExtra("bearing", safeBearing)
+            putExtra("accuracy", location.accuracy)
+            putExtra("bearing", location.bearing)
             putExtra("grade", currentGrade)
             putExtra("device_pitch", gravityGrade)
         }
         sendBroadcast(intent)
 
-        // --- 7. Ενημέρωση previousLocation ΜΟΝΟ με το smoothedLocation (συνέπεια) ---
-        // Φτιάχνουμε νέα Location αντικείμενο για να μην κρατάμε αναφορές
-        previousLocation = Location(smoothedLocation)
+        // --- ΕΝΗΜΕΡΩΣΗ ΜΕΤΑΒΛΗΤΩΝ ---
+        if (isPointValid || previousLocation == null) {
+            previousLocation = location
+        }
         lastFilterTime = currentTime
         lastStepsForFilter = currentSteps
     }
