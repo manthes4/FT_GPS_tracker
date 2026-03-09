@@ -672,7 +672,7 @@ class MainActivity : AppCompatActivity() {
 
         route = Polyline().apply {
             // Η κεντρική γραμμή - Έντονο Cyan/Λευκό-Μπλε
-            outlinePaint.color = Color.parseColor("#F26C13")
+            outlinePaint.color = Color.parseColor("#E60000")
             outlinePaint.strokeWidth = 9.0f // Πιο λεπτό για να φαίνεται το glow από κάτω
             outlinePaint.strokeJoin = Paint.Join.ROUND
             outlinePaint.strokeCap = Paint.Cap.ROUND
@@ -881,7 +881,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun saveRouteDataLocally() {
-        if (pathPoints.isEmpty()) return
+        val sharedPrefs = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
+
+        if (pathPoints.isEmpty()) {
+            // Αν δεν υπάρχει διαδρομή, σβήσε το "last_kml_file" για να μην γίνει διπλή εγγραφή παλιάς διαδρομής
+            sharedPrefs.edit().remove("last_kml_file").apply()
+            return
+        }
 
         val fileDate = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.getDefault()).format(java.util.Date())
         val fileTime = java.text.SimpleDateFormat("HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
@@ -1025,6 +1031,9 @@ class MainActivity : AppCompatActivity() {
     private fun saveStats(time: String, distance: String, avgSpeed: String, steps: String) {
         // Α. Δημιουργούμε το κρυφό KML αρχείο και παίρνουμε το όνομά του
         val kmlFileName = saveKmlInternal(time, distance, avgSpeed, steps)
+
+        // ΑΝ το kmlFileName επέστρεψε το παλιό ή "no_path", σταμάτα εδώ!
+        if (kmlFileName == "no_path" || kmlFileName == "error_kml") return
 
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         val stats = sharedPreferences.getString("stats", "") ?: ""
@@ -1463,7 +1472,7 @@ $coords
                 // Δημιουργία Polyline για περίγραμμα
                 kmlBorderRoute = Polyline().apply {
                     outlinePaint.isAntiAlias = true
-                    outlinePaint.color = android.graphics.Color.WHITE
+                    outlinePaint.color = Color.parseColor("#FAF6F5") // 50% transparency
                     outlinePaint.strokeWidth = 18.0f
                     outlinePaint.strokeJoin = Paint.Join.ROUND
                     outlinePaint.strokeCap = Paint.Cap.ROUND
@@ -1473,7 +1482,7 @@ $coords
                 // Κύρια Polyline
                 kmlRoute = Polyline().apply {
                     outlinePaint.isAntiAlias = true
-                    outlinePaint.color = android.graphics.Color.YELLOW
+                    outlinePaint.color = Color.parseColor("#0456B5")
                     outlinePaint.strokeWidth = 8.0f
                     outlinePaint.strokeJoin = Paint.Join.ROUND
                     outlinePaint.strokeCap = Paint.Cap.ROUND

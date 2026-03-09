@@ -49,6 +49,8 @@ class LocationTrackingService : Service(), SensorEventListener {
     private var smoothedLng = 0.0
     private var hasSmoothedPoint = false
 
+    private var previousSmoothedLocation: Location? = null // Νέα μεταβλητή στα μέλη της κλάσης
+
     override fun onCreate() {
         super.onCreate()
 
@@ -193,23 +195,27 @@ class LocationTrackingService : Service(), SensorEventListener {
 
         startForeground(1, notification)
     }
-    private val locationListener = LocationListener { location ->
 
-        // --- 1. ΦΙΛΤΡΟ ΑΚΡΙΒΕΙΑΣ ---
-        if (location.accuracy > 45f) return@LocationListener
+    private val locationListener = LocationListener { location ->
+        // --- 0. ΟΡΙΣΜΟΣ ΧΡΟΝΟΥ ---
+        val currentTime = System.currentTimeMillis() // Αυτό έλειπε!
+        // --- 1. ΑΥΣΤΗΡΟΤΕΡΟ ΦΙΛΤΡΟ ΑΚΡΙΒΕΙΑΣ ---
+        // Αν η ακρίβεια είναι πάνω από 30-35μ, το σημείο θα προκαλέσει μεγάλο άλμα στην απόσταση
+        if (location.accuracy > 35f) return@LocationListener
 
         var isPointValid = false
         currentSpeedKmH = location.speed * 3.6f
-        val currentTime = System.currentTimeMillis()
 
-        // --- 2. GPS SMOOTHING (μειώνει το jitter του GPS) ---
+        // --- 2. GPS SMOOTHING (Εφαρμογή στο ρεύμα των σημείων) ---
         if (!hasSmoothedPoint) {
             smoothedLat = location.latitude
             smoothedLng = location.longitude
             hasSmoothedPoint = true
         } else {
-            smoothedLat = smoothedLat * 0.7 + location.latitude * 0.3
-            smoothedLng = smoothedLng * 0.7 + location.longitude * 0.3
+            // Αυξάνουμε λίγο το βάρος του προηγούμενου σημείου (0.8 αντί για 0.7)
+            // για ακόμα πιο σταθερή γραμμή
+            smoothedLat = smoothedLat * 0.8 + location.latitude * 0.2
+            smoothedLng = smoothedLng * 0.8 + location.longitude * 0.2
         }
 
         val smoothedLocation = Location(location).apply {
@@ -217,27 +223,30 @@ class LocationTrackingService : Service(), SensorEventListener {
             longitude = smoothedLng
         }
 
-        // --- 3. ΥΠΟΛΟΓΙΣΜΟΣ ΑΠΟΣΤΑΣΗΣ ---
-        if (previousLocation != null) {
+        // --- 3. ΥΠΟΛΟΓΙΣΜΟΣ ΑΠΟΣΤΑΣΗΣ (Μόνο μεταξύ Smoothed σημείων) ---
+        if (previousSmoothedLocation != null) {
+            // Υπολογίζουμε την απόσταση από το προηγούμενο ΚΑΛΟ σημείο
+            val gpsDistance = previousSmoothedLocation!!.distanceTo(smoothedLocation)
 
-            val gpsDistance = previousLocation!!.distanceTo(smoothedLocation)
+            // Φίλτρο Teleport (μειωμένο στα 50μ, 80μ είναι πάρα πολλά για 1 δευτερόλεπτο)
+            if (gpsDistance > 50f) return@LocationListener
 
-            // ΦΙΛΤΡΟ TELEPORT
-            if (gpsDistance > 80f) {
-                return@LocationListener
-            }
+            // Δυναμικό minMove: Αν η ακρίβεια είναι κακή, θέλουμε μεγαλύτερη κίνηση για να καταγράψουμε
+            // Αν η ακρίβεια είναι καλή (π.χ. 3μ), το minMove θα είναι 3.0μ.
+            val minMove = maxOf(3.0f, location.accuracy * 0.5f)
 
-            // ελάχιστη κίνηση
-            val minMove = maxOf(2.0f, location.accuracy * 0.12f)
-
-            // ανίχνευση ακινησίας
-            val isProbablyStationary = currentSpeedKmH < 0.4f && gpsDistance < 3f
+            // Ανίχνευση ακινησίας (πιο αυστηρή)
+            val isProbablyStationary = currentSpeedKmH < 0.8f && gpsDistance < 2.5f
 
             if (gpsDistance >= minMove && !isProbablyStationary) {
-
                 totalDistance += gpsDistance
                 isPointValid = true
+                // Ενημερώνουμε το προηγούμενο σημείο ΜΟΝΟ αν η κίνηση ήταν έγκυρη
+                previousSmoothedLocation = smoothedLocation
             }
+        } else {
+            // Πρώτο σημείο της διαδρομής
+            previousSmoothedLocation = smoothedLocation
         }
 
         // --- 4. ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ ---
@@ -285,15 +294,14 @@ class LocationTrackingService : Service(), SensorEventListener {
         // --- ΑΠΟΣΤΟΛΗ ΔΕΔΟΜΕΝΩΝ ΣΤΟ UI ---
         val intent = Intent("LocationUpdate").apply {
             setPackage(packageName)
-            putExtra("lat", location.latitude)
-            putExtra("lng", location.longitude)
+            putExtra("lat", smoothedLocation.latitude) // Στέλνουμε το smoothed στο UI
+            putExtra("lng", smoothedLocation.longitude) // Στέλνουμε το smoothed στο UI
             putExtra("is_valid", isPointValid)
             putExtra("distance", totalDistance)
             putExtra("current_speed", currentSpeedKmH)
             putExtra("accuracy", location.accuracy)
             putExtra("bearing", location.bearing)
             putExtra("grade", currentGrade)
-            putExtra("device_pitch", gravityGrade)
         }
         sendBroadcast(intent)
 
