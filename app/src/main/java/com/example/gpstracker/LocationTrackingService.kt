@@ -51,8 +51,14 @@ class LocationTrackingService : Service(), SensorEventListener {
 
     private var previousSmoothedLocation: Location? = null // Νέα μεταβλητή στα μέλη της κλάσης
 
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+
     override fun onCreate() {
         super.onCreate()
+
+        val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "GPSTracker::WakeLock")
+        wakeLock?.acquire()
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
@@ -132,7 +138,10 @@ class LocationTrackingService : Service(), SensorEventListener {
             ) == PackageManager.PERMISSION_GRANTED
         ) {
             locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER, 1500L, 1.0f, locationListener
+                LocationManager.GPS_PROVIDER,
+                1000L, // 1 δευτερόλεπτο
+                0.5f,  // 0.5 μέτρο αντί για 1.0
+                locationListener
             )
         }
 
@@ -175,6 +184,7 @@ class LocationTrackingService : Service(), SensorEventListener {
         val channelId = "GPS_Tracking_Service_Channel"
         val channelName = "GPS Tracking Service"
 
+        // 1. Δημιουργία του Channel (για Android 8+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
@@ -185,6 +195,7 @@ class LocationTrackingService : Service(), SensorEventListener {
             notificationManager?.createNotificationChannel(channel)
         }
 
+        // 2. Χτίσιμο του αρχικού Notification
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Καταγραφή Διαδρομής")
             .setContentText("📍 0.00 km  |  ⏱️ 00:00:00")
@@ -193,7 +204,12 @@ class LocationTrackingService : Service(), SensorEventListener {
             .setOngoing(true)
             .build()
 
-        startForeground(1, notification)
+        // 3. Εκκίνηση της υπηρεσίας στο προσκήνιο (Foreground)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        } else {
+            startForeground(1, notification)
+        }
     }
 
     private val locationListener = LocationListener { location ->
@@ -233,10 +249,10 @@ class LocationTrackingService : Service(), SensorEventListener {
 
             // Δυναμικό minMove: Αν η ακρίβεια είναι κακή, θέλουμε μεγαλύτερη κίνηση για να καταγράψουμε
             // Αν η ακρίβεια είναι καλή (π.χ. 3μ), το minMove θα είναι 3.0μ.
-            val minMove = maxOf(3.0f, location.accuracy * 0.5f)
+            val minMove = maxOf(1.5f, location.accuracy * 0.3f) // Πιο χαλαρό από το 3.0f
 
             // Ανίχνευση ακινησίας (πιο αυστηρή)
-            val isProbablyStationary = currentSpeedKmH < 0.8f && gpsDistance < 2.5f
+            val isProbablyStationary = currentSpeedKmH < 0.4f && gpsDistance < 1.5f
 
             if (gpsDistance >= minMove && !isProbablyStationary) {
                 totalDistance += gpsDistance
@@ -323,5 +339,6 @@ class LocationTrackingService : Service(), SensorEventListener {
         sensorManager.unregisterListener(this) // Αποδέσμευση αισθητήρα
         totalDistance = 0f
         previousLocation = null
+        wakeLock?.release()
     }
 }
