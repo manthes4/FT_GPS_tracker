@@ -21,8 +21,7 @@
             android:layout_height="wrap_content"
             android:textColor="#F83F05"
             android:textSize="15sp"
-            android:textStyle="bold"
-            android:text="19/02/26" />
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/stat_time"
@@ -33,8 +32,7 @@
             android:textColor="#FBE104"
             android:textSize="15sp"
             android:textStyle="bold"
-            android:fontFamily="monospace"
-            android:text="00:45:12" />
+            android:fontFamily="monospace" />
 
         <ImageButton
             android:id="@+id/export_button"
@@ -66,8 +64,7 @@
             android:layout_weight="1"
             android:textColor="#FFFFFF"
             android:textSize="14sp"
-            android:textStyle="bold"
-            android:text="5.20 km" />
+            android:textStyle="bold" />
 
         <TextView
             android:id="@+id/stat_avg_speed"
@@ -75,7 +72,6 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:gravity="center"
-            android:text="12.5 km/h"
             android:textColor="#FFFFFF"
             android:textSize="14sp" />
 
@@ -87,7 +83,6 @@
             android:gravity="end"
             android:textColor="#FFFFFF"
             android:textSize="14sp"
-            android:textStyle="bold"
-            android:text="1250 steps" />
+            android:textStyle="bold" />
     </LinearLayout>
 </LinearLayout>
