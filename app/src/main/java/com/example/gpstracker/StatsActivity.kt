@@ -140,7 +140,7 @@ class StatsActivity : AppCompatActivity() {
     private fun deleteStat(index: Int) {
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         val statsText = sharedPreferences.getString("stats", "") ?: ""
-        val statsList = statsText.split("\n").filter { it.isNotEmpty() }
+        val statsList = statsText.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
 
         if (index < statsList.size) {
             // Προαιρετικά: Εδώ θα μπορούσες να διαγράψεις και το φυσικό αρχείο KML από το filesDir
