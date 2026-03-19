@@ -23,7 +23,9 @@ class StatsActivity : AppCompatActivity() {
 
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         val statsText = sharedPreferences.getString("stats", "") ?: ""
-        val statsList = statsText.split("\n").filter { it.isNotEmpty() }
+        val statsList = statsText.split("\n")
+            .map { it.trim() }             // Αφαιρεί κενά διαστήματα από την αρχή και το τέλος κάθε γραμμής
+            .filter { it.isNotEmpty() }    // Κρατάει μόνο τις γραμμές που έχουν πραγματικά δεδομένα
 
         statsList.forEachIndexed { index, stat ->
             val statView = layoutInflater.inflate(R.layout.stat_item, statsContainer, false)
@@ -37,12 +39,13 @@ class StatsActivity : AppCompatActivity() {
                 statView.findViewById<TextView>(R.id.stat_avg_speed).text = "Avg: ${parts[3]} km/h"
                 statView.findViewById<TextView>(R.id.stat_steps).text = "Steps: ${parts[4]}"
 
-                val internalKmlName = parts[5] // Το όνομα του κρυφού αρχείου
+                val internalKmlName = parts[5] // Το όνομα του κρυφού αρχείου (π.χ. route_20260318_1804.kml)
+                val distanceValue = parts[2]   // Η απόσταση (π.χ. 3.25)
 
-                // Κουμπί Export: Αντιγράφει το κρυφό αρχείο στα Documents
                 val exportIcon: ImageButton = statView.findViewById(R.id.export_button)
                 exportIcon.setOnClickListener {
-                    copyInternalKmlToPublic(internalKmlName)
+                    // Καλούμε τη συνάρτηση στέλνοντας και το όνομα ΚΑΙ την απόσταση
+                    copyInternalKmlToPublic(internalKmlName, distanceValue)
                 }
             }
 
@@ -59,45 +62,47 @@ class StatsActivity : AppCompatActivity() {
             .setOnClickListener { showDeleteAllConfirmationDialog() }
     }
 
-    private fun copyInternalKmlToPublic(internalFileName: String) {
-        if (internalFileName == "no_path" || internalFileName == "error_kml") {
-            Toast.makeText(this, "Δεν υπάρχουν γεωγραφικά δεδομένα", Toast.LENGTH_SHORT).show()
-            return
-        }
-
+    // Προσθέσαμε την παράμετρο distance
+    fun copyInternalKmlToPublic(internalFileName: String, distance: String) {
         try {
             val sourceFile = File(filesDir, internalFileName)
             if (!sourceFile.exists()) return
 
-            // --- ΕΥΡΕΣΗ ΤΟΠΟΘΕΣΙΑΣ ---
+            // Εύρεση φακέλου Documents (SD ή Εσωτερική)
             val externalDirs = getExternalFilesDirs(null)
-            var sdCardDir: File? = null
-            if (externalDirs.size > 1 && externalDirs[1] != null) {
+            val baseDir = if (externalDirs.size > 1 && externalDirs[1] != null) {
                 val sdRoot = externalDirs[1].absolutePath.split("/Android")[0]
-                sdCardDir = File(sdRoot)
+                File(sdRoot, "Documents")
+            } else {
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
             }
-
-            val baseDir = if (sdCardDir != null) File(sdCardDir, "Documents")
-            else Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
 
             val ftGpsDir = File(baseDir, "FT Gps Tracker")
             if (!ftGpsDir.exists()) ftGpsDir.mkdirs()
 
-            // --- ΔΗΜΙΟΥΡΓΙΑ ΜΟΝΑΔΙΚΟΥ ΟΝΟΜΑΤΟΣ ---
-            // Παίρνουμε το όνομα χωρίς την κατάληξη .kml
-            val nameWithoutExt = internalFileName.substringBeforeLast(".")
-            // Προσθέτουμε την τρέχουσα ώρα (π.χ. _143025 για 14:30:25)
-            val timeStamp = java.text.SimpleDateFormat("HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
-            val uniqueFileName = "${nameWithoutExt}_$timeStamp.kml"
+            // --- ΤΟ ΝΕΟ ΟΝΟΜΑ ΠΟΥ ΖΗΤΗΣΕΣ ---
+            // Μετατροπή κόμματος σε τελεία για το όνομα αρχείου (π.χ. 3,25 -> 3.25)
+            val cleanDist = distance.replace(",", ".")
 
-            val destinationFile = File(ftGpsDir, uniqueFileName)
-            val locationLabel = if (sdCardDir != null) "SD Κάρτα" else "Εσωτερική Μνήμη"
+            // Το τελικό όνομα αρχείου
+            val finalFileName = "route_$cleanDist.kml"
 
-            doCopy(sourceFile, destinationFile, locationLabel)
+            val destinationFile = File(ftGpsDir, finalFileName)
+
+            // Αντιγραφή αρχείου
+            sourceFile.inputStream().use { input ->
+                destinationFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+
+            // Ενημέρωση του Android Media Scanner για να φανεί το αρχείο αμέσως
+            android.media.MediaScannerConnection.scanFile(this, arrayOf(destinationFile.absolutePath), null, null)
+
+            Toast.makeText(this, "Αποθηκεύτηκε ως: $finalFileName", Toast.LENGTH_SHORT).show()
 
         } catch (e: Exception) {
-            e.printStackTrace()
-            Toast.makeText(this, "Σφάλμα: ${e.message}", Toast.LENGTH_SHORT).show()
+            Log.e("EXPORT", "Error: ${e.message}")
         }
     }
 
@@ -141,6 +146,7 @@ class StatsActivity : AppCompatActivity() {
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         val statsText = sharedPreferences.getString("stats", "") ?: ""
         val statsList = statsText.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
+
 
         if (index < statsList.size) {
             // Προαιρετικά: Εδώ θα μπορούσες να διαγράψεις και το φυσικό αρχείο KML από το filesDir
