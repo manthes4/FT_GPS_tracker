@@ -24,6 +24,13 @@ import android.hardware.SensorEvent
 
 class LocationTrackingService : Service(), SensorEventListener {
 
+    companion object {
+        // Η "χρυσή" λίστα που δεν χάνεται όσο τρέχει το Service
+        val masterPathPoints = mutableListOf<org.osmdroid.util.GeoPoint>()
+        var serviceTotalDistance = 0f
+        var serviceTotalSteps = 0
+    }
+
     private lateinit var locationManager: LocationManager
     private var previousLocation: Location? = null
     private var totalDistance: Float = 0f
@@ -318,8 +325,18 @@ class LocationTrackingService : Service(), SensorEventListener {
             putExtra("accuracy", location.accuracy)
             putExtra("bearing", location.bearing)
             putExtra("grade", currentGrade)
+            putExtra("steps", currentSteps) // Μην ξεχάσεις τα βήματα
         }
         sendBroadcast(intent)
+
+        // --- ΚΡΙΣΙΜΗ ΠΡΟΣΘΗΚΗ ΓΙΑ ΤΗΝ ΑΝΑΚΤΗΣΗ ΔΕΔΟΜΕΝΩΝ ---
+// Αν το σημείο είναι έγκυρο, το κρατάμε στη "Master" λίστα του Service
+        if (isPointValid) {
+            val point = org.osmdroid.util.GeoPoint(smoothedLocation.latitude, smoothedLocation.longitude)
+            masterPathPoints.add(point)
+            serviceTotalDistance = totalDistance
+            serviceTotalSteps = currentSteps
+        }
 
         // --- ΕΝΗΜΕΡΩΣΗ ΜΕΤΑΒΛΗΤΩΝ ---
         if (isPointValid || previousLocation == null) {
