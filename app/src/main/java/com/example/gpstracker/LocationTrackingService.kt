@@ -24,6 +24,15 @@ import android.hardware.SensorEvent
 
 class LocationTrackingService : Service(), SensorEventListener {
 
+    companion object {
+        // Η "χρυσή" λίστα που δεν χάνεται όσο τρέχει το Service
+        val masterPathPoints = mutableListOf<org.osmdroid.util.GeoPoint>()
+        var serviceTotalDistance = 0f
+        var serviceTotalSteps = 0
+        var serviceTotalCalories = 0.0 // <-- ΠΡΟΣΘΗΚΗ
+        var isServicePaused = false    // <-- ΠΡΟΣΘΗΚΗ ΓΙΑ ΤΗΝ ΠΑΥΣΗ
+    }
+
     private lateinit var locationManager: LocationManager
     private var previousLocation: Location? = null
     private var totalDistance: Float = 0f
@@ -89,6 +98,7 @@ class LocationTrackingService : Service(), SensorEventListener {
 
     // ΠΡΟΣΘΗΚΗ: Υλοποίηση της μεθόδου onSensorChanged
     override fun onSensorChanged(event: SensorEvent?) {
+        if (isServicePaused) return
         if (event?.sensor?.type == Sensor.TYPE_STEP_COUNTER) {
             val totalStepsSinceBoot = event.values[0].toInt()
 
@@ -213,6 +223,7 @@ class LocationTrackingService : Service(), SensorEventListener {
     }
 
     private val locationListener = LocationListener { location ->
+        if (isServicePaused) return@LocationListener // Αν είμαστε σε παύση, αγνόησε το σημείο!
         // --- 0. ΟΡΙΣΜΟΣ ΧΡΟΝΟΥ ---
         val currentTime = System.currentTimeMillis() // Αυτό έλειπε!
         // --- 1. ΑΥΣΤΗΡΟΤΕΡΟ ΦΙΛΤΡΟ ΑΚΡΙΒΕΙΑΣ ---
@@ -306,6 +317,25 @@ class LocationTrackingService : Service(), SensorEventListener {
         val safeBearing =
             if (location.speed > 0.5f) location.bearing else -1f
 
+        // --- ΥΠΟΛΟΓΙΣΜΟΣ ΘΕΡΜΙΔΩΝ ---
+        val sharedPrefs = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
+        val userWeight = sharedPrefs.getFloat("user_weight", 75.0f) // 75kg ως προεπιλογή
+
+        val met = when {
+            currentSpeedKmH < 1.0f -> 1.0f  // Ακίνητος
+            currentSpeedKmH < 4.0f -> 3.0f  // Αργό περπάτημα
+            currentSpeedKmH < 5.5f -> 3.5f  // Κανονικό περπάτημα
+            currentSpeedKmH < 7.0f -> 4.5f  // Γρήγορο περπάτημα
+            currentSpeedKmH < 9.0f -> 8.0f  // Jogging / Αργό τρέξιμο
+            else -> 11.0f                   // Τρέξιμο
+        }
+
+        // Υπολογισμός ανά δευτερόλεπτο
+        if (isPointValid && currentSpeedKmH > 1.0f) {
+            val caloriesPerMinute = (met * 3.5f * userWeight) / 200.0f
+            val caloriesPerSecond = caloriesPerMinute / 60.0f
+            serviceTotalCalories += caloriesPerSecond
+        }
 
         // --- ΑΠΟΣΤΟΛΗ ΔΕΔΟΜΕΝΩΝ ΣΤΟ UI ---
         val intent = Intent("LocationUpdate").apply {
@@ -317,9 +347,19 @@ class LocationTrackingService : Service(), SensorEventListener {
             putExtra("current_speed", currentSpeedKmH)
             putExtra("accuracy", location.accuracy)
             putExtra("bearing", location.bearing)
-            putExtra("grade", currentGrade)
+            putExtra("calories", serviceTotalCalories) // <-- ΑΝΤΙΚΑΤΑΣΤΑΣΗ ΕΔΩ
+            putExtra("steps", currentSteps) // Μην ξεχάσεις τα βήματα
         }
         sendBroadcast(intent)
+
+        // --- ΚΡΙΣΙΜΗ ΠΡΟΣΘΗΚΗ ΓΙΑ ΤΗΝ ΑΝΑΚΤΗΣΗ ΔΕΔΟΜΕΝΩΝ ---
+// Αν το σημείο είναι έγκυρο, το κρατάμε στη "Master" λίστα του Service
+        if (isPointValid) {
+            val point = org.osmdroid.util.GeoPoint(smoothedLocation.latitude, smoothedLocation.longitude)
+            masterPathPoints.add(point)
+            serviceTotalDistance = totalDistance
+            serviceTotalSteps = currentSteps
+        }
 
         // --- ΕΝΗΜΕΡΩΣΗ ΜΕΤΑΒΛΗΤΩΝ ---
         if (isPointValid || previousLocation == null) {

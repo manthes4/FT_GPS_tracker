@@ -312,6 +312,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val btnWeight = findViewById<ImageButton>(R.id.button_weight)
+        btnWeight.setOnClickListener {
+            showWeightInputDialog()
+        }
+
         val btnUndo = findViewById<android.widget.ImageButton>(R.id.button_undo_plan)
         btnUndo.setOnClickListener {
             if (isPlanningEnabled) {
@@ -417,6 +422,36 @@ class MainActivity : AppCompatActivity() {
                 getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
+    }
+
+    private fun showWeightInputDialog() {
+        val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
+        val currentWeight = sharedPreferences.getFloat("user_weight", 75.0f)
+
+        val builder = AlertDialog.Builder(this)
+        builder.setTitle("Ορισμός Βάρους")
+        builder.setMessage("Εισάγετε το βάρος σας σε κιλά για τον υπολογισμό των θερμίδων:")
+
+        val input = EditText(this)
+        input.inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        input.setText(currentWeight.toString())
+        builder.setView(input)
+
+        builder.setPositiveButton("Αποθήκευση") { dialog, _ ->
+            val weightStr = input.text.toString()
+            if (weightStr.isNotEmpty()) {
+                val weight = weightStr.toFloatOrNull()
+                if (weight != null && weight > 0) {
+                    sharedPreferences.edit().putFloat("user_weight", weight).apply()
+                    showCustomToast("Το βάρος αποθηκεύτηκε: $weight kg")
+                } else {
+                    showCustomToast("Μη έγκυρη τιμή")
+                }
+            }
+            dialog.dismiss()
+        }
+        builder.setNegativeButton("Ακύρωση") { dialog, _ -> dialog.cancel() }
+        builder.show()
     }
 
     private fun togglePOIsVisibility() {
@@ -641,9 +676,11 @@ class MainActivity : AppCompatActivity() {
         currentLocationMarker?.let { map.overlays.remove(it) }
         currentLocationMarker = null
 
-        tvGrade.text = "0.0" // μηδενισμος κλισης
+// Μηδενισμός θερμίδων στη μνήμη του Service
+        LocationTrackingService.serviceTotalCalories = 0.0
+
+        tvGrade.text = "0 kcal" // <-- ΕΔΩ ΑΛΛΑΞΕ! Τώρα ξεκινάει από 0 kcal
         tvGrade.setTextColor(Color.WHITE)
-        tvDistance.text = "0.00 km"
         tvDistance.text = "0.00 km"
 
         // 5. Καθαρισμός UI (Αν θες να μηδενίζονται αμέσως)
@@ -807,11 +844,10 @@ class MainActivity : AppCompatActivity() {
             // Κλίση Διαδρομής (Κεντρικό UI)
             tvGrade.text =
                 if (Math.abs(roadGrade) < 0.5) "0.0" else String.format("%.1f", roadGrade)
-            when {
-                roadGrade > 1.0 -> tvGrade.setTextColor(Color.parseColor("#FF5252"))
-                roadGrade < -1.0 -> tvGrade.setTextColor(Color.parseColor("#64DD17"))
-                else -> tvGrade.setTextColor(Color.WHITE)
-            }
+// Θερμίδες (Κεντρικό UI - Χρησιμοποιούμε το tvGrade)
+            val calories = intent?.getDoubleExtra("calories", 0.0) ?: 0.0
+            tvGrade.text = String.format("%.0f kcal", calories)
+            tvGrade.setTextColor(Color.WHITE) // Πάντα λευκό, καθαρό κείμενο
 
             if (startMarker == null) {
                 startMarker = Marker(map).apply {
@@ -822,11 +858,12 @@ class MainActivity : AppCompatActivity() {
                 map.overlays.add(startMarker)
             }
 
-            // --- ΠΡΟΣΘΗΚΗ ΓΙΑ ΤΟ KML (Δεν επηρεάζει το UI) ---
+            // --- ΠΡΟΣΘΗΚΗ ΓΙΑ ΤΟ KML ---
             lastDistanceStr = tvDistance.text.toString()
             lastSpeedStr = tvCurrentSpeed.text.toString() + " km/h"
             lastSteps = tvSteps.text.toString()
             lastTimeStr = tvTime.text.toString()
+            var lastCaloriesStr = tvGrade.text.toString() // <-- ΑΥΤΟ ΚΡΑΤΑΕΙ ΤΙΣ ΘΕΡΜΙΔΕΣ ΓΙΑ ΤΟ KML!
             // -----------------------------------------------
             map.invalidate()
         }
@@ -889,15 +926,19 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val fileDate = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.getDefault()).format(java.util.Date())
-        val fileTime = java.text.SimpleDateFormat("HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
-        val prettyDate = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).format(java.util.Date())
+        val fileDate = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        val fileTime = java.text.SimpleDateFormat("HHmmss", java.util.Locale.getDefault())
+            .format(java.util.Date())
+        val prettyDate = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+            .format(java.util.Date())
 
         val internalFileName = "route_${fileDate}_$fileTime.kml"
 
         // Χτίζουμε το περιεχόμενο με αλλαγές γραμμής (\n) για να μην είναι όλα μαζί
         // Χρησιμοποιούμε απλά emoji που υποστηρίζονται από το Android InfoWindow
-        val statsForKml = "⏱️ $lastTimeStr | 📍 $lastDistanceStr | ⚡ $lastSpeedStr | 👣 $lastSteps βήματα"
+        val statsForKml =
+            "⏱️ $lastTimeStr | 📍 $lastDistanceStr | ⚡ $lastSpeedStr | 👣 $lastSteps βήματα"
 
         val kmlHeader = """<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
@@ -1141,7 +1182,12 @@ $coords
         val pathsToSearch = mutableListOf<File>()
 
         // Προσθήκη Εσωτερικής Μνήμης (Documents)
-        pathsToSearch.add(File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS), "FT Gps Tracker"))
+        pathsToSearch.add(
+            File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+                "FT Gps Tracker"
+            )
+        )
 
         // Προσθήκη SD Κάρτας (αν υπάρχει)
         if (externalDirs.size > 1 && externalDirs[1] != null) {
@@ -1169,10 +1215,14 @@ $coords
 
         // 4. Δημιουργία της λίστας δεδομένων
         val displayList = sortedFiles.map { file ->
-            val date = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.getDefault()).format(Date(file.lastModified()))
+            val date = SimpleDateFormat(
+                "dd/MM/yyyy HH:mm",
+                Locale.getDefault()
+            ).format(Date(file.lastModified()))
 
             // Προαιρετικά: Προσθέτουμε ένα εικονίδιο ή κείμενο αν είναι στην SD
-            val locationTag = if (file.absolutePath.contains("storage/emulated/0")) " [Internal]" else " [SD]"
+            val locationTag =
+                if (file.absolutePath.contains("storage/emulated/0")) " [Internal]" else " [SD]"
 
             mapOf("name" to (file.name), "date" to "$date$locationTag")
         }
@@ -1191,7 +1241,12 @@ $coords
                 val textView = view as TextView
                 textView.text = data.toString()
                 val paddingInPx = (8 * resources.displayMetrics.density + 0.5f).toInt()
-                textView.setPadding(textView.paddingLeft, paddingInPx, textView.paddingRight, textView.paddingBottom)
+                textView.setPadding(
+                    textView.paddingLeft,
+                    paddingInPx,
+                    textView.paddingRight,
+                    textView.paddingBottom
+                )
                 true
             } else false
         }
@@ -1228,7 +1283,8 @@ $coords
         val dividerHeight = (2 * metrics.density).toInt()
         val sideMargin = (20 * metrics.density).toInt()
         val redDrawable = android.graphics.drawable.ColorDrawable(android.graphics.Color.RED)
-        val insetDivider = android.graphics.drawable.InsetDrawable(redDrawable, sideMargin, 2, sideMargin, 2)
+        val insetDivider =
+            android.graphics.drawable.InsetDrawable(redDrawable, sideMargin, 2, sideMargin, 2)
 
         dialog.listView.divider = insetDivider
         dialog.listView.dividerHeight = dividerHeight
@@ -1274,7 +1330,7 @@ $coords
 // Σειρά 1: Χρόνος και Απόσταση (με "χλμ")
             // Σειρά 2: Ταχύτητα (με "Avg") και Βήματα (με "Steps")
             "$time &nbsp;&nbsp;&nbsp; $dist χλμ &nbsp;&nbsp;<br/>" +
-            "&nbsp;&nbsp;&nbsp; $speed km/h &nbsp;&nbsp;&nbsp; $steps Steps &nbsp;&nbsp;"
+                    "&nbsp;&nbsp;&nbsp; $speed km/h &nbsp;&nbsp;&nbsp; $steps Steps &nbsp;&nbsp;"
 
         } catch (e: Exception) {
             kmlDescription // fallback αν κάτι πάει στραβά
@@ -1414,7 +1470,10 @@ $coords
                         when {
                             parser.name.equals("Placemark", true) -> inPlacemark = true
 
-                            inPlacemark && parser.name.equals("coordinates", true) -> inCoordinates = true
+                            inPlacemark && parser.name.equals(
+                                "coordinates",
+                                true
+                            ) -> inCoordinates = true
 
                             inPlacemark && parser.name.equals("Data", true) -> {
                                 val name = parser.getAttributeValue(null, "name")
@@ -1509,7 +1568,8 @@ $coords
 
                     // Αποθήκευσε το description (τα στατιστικά) σε μια μεταβλητή
                     // ή στο snippet προσωρινά για να το βρει η loadKmlFromFile
-                    val infoText = "⏱️ ${time ?: "-"} | 📍 ${distance ?: "-"} | ⚡ ${avgSpeed ?: "-"} | 👣 ${steps ?: "-"}"
+                    val infoText =
+                        "⏱️ ${time ?: "-"} | 📍 ${distance ?: "-"} | ⚡ ${avgSpeed ?: "-"} | 👣 ${steps ?: "-"}"
                     kmlGreenMarker?.snippet = infoText
                 }
 
@@ -1821,14 +1881,17 @@ $coords
 
     private fun handleLongClick(point: GeoPoint) {
         if (startPoint == null || (startPoint != null && endPoint != null)) {
-            // Καθαρισμός αν υπήρχε προηγούμενη διαδρομή και ορισμός νέας αφετηρίας
-            clearMapRouting()
+
+            // --- ΑΥΤΗ ΕΙΝΑΙ Η ΑΛΛΑΓΗ: Προσθέτουμε το false μέσα στην παρένθεση ---
+            clearMapRouting(false)
+            // -----------------------------------------------------------------
+
             startPoint = point
             startMarker = addMarker(
                 point,
                 "Αφετηρία",
                 R.drawable.edit_location_alt_24px
-            ) // Βάλε ένα δικό σου εικονίδιο
+            )
             showCustomToast("Ορίστηκε Αφετηρία")
         } else {
             // Ορισμός προορισμού
@@ -1891,7 +1954,8 @@ $coords
         map.invalidate()
     }
 
-    private fun clearMapRouting() {
+    // Προσθέτουμε το (shouldZoom: Boolean = true) στην παρένθεση
+    private fun clearMapRouting(shouldZoom: Boolean = true) {
         // 1. Μηδενισμός βασικών μεταβλητών
         startPoint = null
         endPoint = null
@@ -1923,16 +1987,58 @@ $coords
         endMarker = null
         currentLocationMarker = null // Μηδενίζουμε και το βέλος για να μην έχουμε διπλά είδωλα
 
-        // --- Η ΠΡΟΣΘΗΚΗ ΣΟΥ ΕΔΩ ---
-        // 7. Επαναφορά στην αρχική κατάσταση (Ανθρωπάκι + Zoom)
-        zoomToLastKnownLocation()
+        // --- ΕΔΩ ΓΙΝΕΤΑΙ Η ΑΛΛΑΓΗ ---
+        // 7. Επαναφορά στην αρχική κατάσταση (Ανθρωπάκι + Zoom) ΜΟΝΟ αν επιτρέπεται
+        if (shouldZoom) {
+            zoomToLastKnownLocation()
+        }
+        // ----------------------------
 
         // 8. Εξαφάνιση του πάνελ πληροφοριών
         statsContainer.visibility = View.GONE
 
         // 9. Ανανέωση χάρτη
         map.invalidate()
-        showCustomToast("Ο χάρτης καθαρίστηκε")
+
+        // Εμφάνιση μηνύματος μόνο αν έγινε πλήρης καθαρισμός με zoom
+        if (shouldZoom) {
+            showCustomToast("Ο χάρτης καθαρίστηκε")
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+
+        // Αν το Service τρέχει (υπάρχουν σημεία), επανέφερε την εικόνα
+        if (LocationTrackingService.masterPathPoints.isNotEmpty()) {
+
+            // 1. Ενημέρωσε την τοπική λίστα της MainActivity για να συνεχίσει ο σχεδιασμός
+            pathPoints.clear()
+            pathPoints.addAll(LocationTrackingService.masterPathPoints)
+
+            // 2. Ξανασχεδίασε την Polyline αμέσως
+            roadOverlay?.let { map.overlays.remove(it) }
+            roadOverlay = Polyline(map)
+            roadOverlay?.setPoints(pathPoints)
+            roadOverlay?.outlinePaint?.color = android.graphics.Color.BLUE
+            roadOverlay?.outlinePaint?.strokeWidth = 10f
+            map.overlays.add(roadOverlay)
+
+            // 3. Ενημέρωσε τα TextViews με τα τελευταία νούμερα από το Service
+            val distKm = LocationTrackingService.serviceTotalDistance / 1000f
+            tvDistance.text = String.format("%.2f km", distKm)
+            tvSteps.text = LocationTrackingService.serviceTotalSteps.toString()
+
+            // ΕΜΦΑΝΙΣΗ ΘΕΡΜΙΔΩΝ ΣΤΗΝ ONRESUME
+            tvGrade.text = String.format("%.0f kcal", LocationTrackingService.serviceTotalCalories)
+
+            // 4. Σιγουρέψου ότι το πάνελ είναι ορατό
+            if (isTracking) {
+                statsContainer.visibility = View.VISIBLE
+            }
+
+            map.invalidate()
+        }
     }
 }
 
