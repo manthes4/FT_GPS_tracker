@@ -345,7 +345,36 @@ class MainActivity : AppCompatActivity() {
         checkPermissionsAndZoomToLocation()
 
         startButton.setOnClickListener {
-            checkPermissionsAndStartTracking()
+            if (!isTracking) {
+                // 1. Αν ξεκινάει τώρα η καταγραφή, τρέχουμε τη startTracking
+                checkPermissionsAndStartTracking()
+
+                // Το εικονίδιο ΠΑΡΑΜΕΝΕΙ το baseline_gps_fixed_24 (όπως το ήθελες)
+                val startText = startButton.findViewById<android.widget.TextView>(R.id.button_start_text)
+                startText?.text = "Pause"
+            } else {
+                // 2. Αν ήδη καταγράφει, κάνουμε εναλλαγή Pause / Resume στο Service
+                LocationTrackingService.isServicePaused = !LocationTrackingService.isServicePaused
+
+                val startIcon = startButton.findViewById<android.widget.ImageView>(R.id.button_start_icon)
+                val startText = startButton.findViewById<android.widget.TextView>(R.id.button_start_text)
+
+                if (LocationTrackingService.isServicePaused) {
+                    showCustomToast("Η καταγραφή παύθηκε")
+
+                    // ΑΛΛΑΓΗ ΣΕ ΚΑΤΑΣΤΑΣΗ ΠΑΥΣΗΣ: Εμφανίζουμε εικονίδιο Pause
+                    startText?.text = "Resume"
+                    startIcon?.setImageResource(android.R.drawable.ic_media_pause) // Default εικονίδιο παύσης του Android
+                    startIcon?.setColorFilter(Color.parseColor("#FFAB00")) // Πορτοκαλί χρώμα για να ξεχωρίζει η παύση
+                } else {
+                    showCustomToast("Η καταγραφή συνεχίζεται")
+
+                    // ΕΠΙΣΤΡΟΦΗ ΣΕ ΚΑΝΟΝΙΚΗ ΚΑΤΑΓΡΑΦΗ: Επαναφέρουμε το δικό σου GPS εικονίδιο
+                    startText?.text = "Pause"
+                    startIcon?.setImageResource(R.drawable.baseline_gps_fixed_24)
+                    startIcon?.setColorFilter(Color.parseColor("#64DD17")) // Επαναφορά στο πράσινο
+                }
+            }
         }
 
         stopButton.setOnClickListener {
@@ -992,8 +1021,14 @@ class MainActivity : AppCompatActivity() {
         val finalSteps = currentSteps
         stepCounterManager.stop()
 
-        // 2. ΑΠΟΘΗΚΕΥΣΗ (Εδώ γίνονται όλα: KML + Stats)
-        saveStats(formattedTime, formattedDistance, formattedAvgSpeed, finalSteps.toString())
+        // --- ΒΗΜΑ 2: ΑΛΛΑΓΗ ΓΙΑ ΤΙΣ ΘΕΡΜΙΔΕΣ ---
+        // Αντί για την παλιά κλίση, παίρνουμε το κείμενο των θερμίδων από την οθόνη (π.χ. "120 kcal")
+        val finalCalories = tvGrade.text.toString()
+
+        // Περνάμε τις θερμίδες στη saveStats (αντικαθιστώντας την κλίση αν την έστελνες εκεί,
+        // ή απλά σιγουρεύσου ότι η saveStats σου δέχεται αυτό το string για το KML)
+        saveStats(formattedTime, formattedDistance, formattedAvgSpeed, finalSteps.toString(), finalCalories)
+        // ----------------------------------------
 
         // 3. Καθαρισμός Service & Receiver
         val intent = Intent(this, LocationTrackingService::class.java)
@@ -1007,6 +1042,15 @@ class MainActivity : AppCompatActivity() {
 
         // 4. Καθαρισμός λίστας για την επόμενη διαδρομή
         pathPoints.clear()
+
+        // --- ΒΗΜΑ 5: ΠΡΟΣΘΗΚΗ ΓΙΑ ΤΗΝ ΕΠΑΝΑΦΟΡΑ ΤΟΥ ΚΟΥΜΠΙΟΥ START GPS ---
+        val startIcon = startButton.findViewById<android.widget.ImageView>(R.id.button_start_icon)
+        val startText = startButton.findViewById<android.widget.TextView>(R.id.button_start_text)
+
+        startText?.text = "Start GPS"
+        startIcon?.setImageResource(R.drawable.baseline_gps_fixed_24)
+        startIcon?.setColorFilter(Color.parseColor("#64DD17")) // Επαναφορά στο αρχικό πράσινο
+        // -----------------------------------------------------------------
 
         map.invalidate()
         showCustomToast("Τερματισμός tracking")
@@ -1069,9 +1113,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun saveStats(time: String, distance: String, avgSpeed: String, steps: String) {
-        // Α. Δημιουργούμε το κρυφό KML αρχείο και παίρνουμε το όνομά του
-        val kmlFileName = saveKmlInternal(time, distance, avgSpeed, steps)
+    private fun saveStats(time: String, distance: String, avgSpeed: String, steps: String, calories: String) { // <-- ΠΡΟΣΘΗΚΗ ΠΑΡΑΜΕΤΡΟΥ
+        // Α. Δημιουργούμε το κρυφό KML αρχείο και περνάμε και τις θερμίδες
+        val kmlFileName = saveKmlInternal(time, distance, avgSpeed, steps, calories) // <-- ΠΡΟΣΘΗΚΗ ΕΔΩ
 
         // ΑΝ το kmlFileName επέστρεψε το παλιό ή "no_path", σταμάτα εδώ!
         if (kmlFileName == "no_path" || kmlFileName == "error_kml") return
@@ -1083,6 +1127,8 @@ class MainActivity : AppCompatActivity() {
         val displayDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
 
         // Format: Ημερομηνία Χρόνος Απόσταση Ταχύτητα Βήματα Όνομα_Αρχείου
+        // Σημείωση: Αν θες να αποθηκεύονται οι θερμίδες και στο εσωτερικό ιστορικό (StatsActivity),
+        // μπορείς να τις προσθέσεις στο string, π.χ. μετά τα βήματα.
         val newStat = "$displayDate $time $distance $avgSpeed $steps $kmlFileName\n"
 
         sharedPreferences.edit().putString("stats", stats + newStat).apply()
@@ -1093,7 +1139,8 @@ class MainActivity : AppCompatActivity() {
         time: String,
         distance: String,
         avgSpeed: String,
-        steps: String
+        steps: String,
+        calories: String // <-- ΠΡΟΣΘΗΚΗ ΠΑΡΑΜΕΤΡΟΥ
     ): String {
 
         if (pathPoints.isEmpty()) return "no_path"
@@ -1121,7 +1168,7 @@ class MainActivity : AppCompatActivity() {
 <Data name="distance"><value>$distance</value></Data>
 <Data name="avg_speed"><value>$avgSpeed</value></Data>
 <Data name="steps"><value>$steps</value></Data>
-</ExtendedData>
+<Data name="calories"><value>$calories</value></Data> </ExtendedData>
 
 <LineString>
 <coordinates>
