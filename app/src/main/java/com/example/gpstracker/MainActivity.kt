@@ -92,6 +92,7 @@ class MainActivity : AppCompatActivity() {
     private var currentLocationMarker: Marker? = null
     private lateinit var statsContainer: LinearLayout // Δήλωση στην κορυφή
     private var hasZoomedToTracking = false
+    private var elapsedTimeInSeconds = 0L // Κρατάει τα δευτερόλεπτα της διαδρομής
 
     // Μια λίστα που θα κρατάει όλα τα σημεία της διαδρομής
     private val pathPoints = mutableListOf<org.osmdroid.util.GeoPoint>()
@@ -283,6 +284,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         stepCounterManager = StepCounterManager(this) { steps ->
+            // ΠΡΟΣΘΗΚΗ: Αν είμαστε σε παύση, μην αυξάνεις τα βήματα στην οθόνη
+            if (LocationTrackingService.isServicePaused) return@StepCounterManager
             if (isTracking) { // Μετράμε μόνο αν έχουμε πατήσει Start
                 if (initialSteps == 0) {
                     initialSteps = steps
@@ -712,6 +715,8 @@ class MainActivity : AppCompatActivity() {
         tvGrade.setTextColor(Color.WHITE)
         tvDistance.text = "0.00 km"
 
+        elapsedTimeInSeconds = 0L
+
         // 5. Καθαρισμός UI (Αν θες να μηδενίζονται αμέσως)
         tvTime.text = "00:00:00"
         tvAvgSpeed.text = "0.0"
@@ -767,27 +772,32 @@ class MainActivity : AppCompatActivity() {
         updateStatsRunnable = object : Runnable {
             override fun run() {
                 if (isTracking) {
-                    val currentTime = System.currentTimeMillis()
-                    tvAccuracy.visibility = View.VISIBLE // Εμφάνιση
-                    tvCurrentGrade.visibility = View.VISIBLE // <--- ΠΡΟΣΘΕΣΕ ΑΥΤΟ ΕΔΩ
-                    // Ορίζουμε το elapsedTime εδώ για να το αναγνωρίζει παρακάτω
-                    val elapsedTime = (currentTime - startTime) / 1000
+                    // --- ΤΟ ΚΛΕΙΔΙ ΓΙΑ ΤΗΝ ΠΑΥΣΗ ---
+                    // Αν είμαστε σε παύση, ξανακάλεσε το Runnable μετά από 1 δευτερόλεπτο
+                    // ΧΩΡΙΣ να προσθέσεις χρόνο και χωρίς να αλλάξεις τίποτα στην οθόνη!
+                    if (LocationTrackingService.isServicePaused) {
+                        handler.postDelayed(this, 1000)
+                        return
+                    }
+
+                    // Αυξάνουμε τον χρόνο κατά 1 δευτερόλεπτο αφού η εφαρμογή καταγράφει κανονικά
+                    elapsedTimeInSeconds++
+
+                    tvAccuracy.visibility = View.VISIBLE
+                    tvCurrentGrade.visibility = View.VISIBLE
+                    statsContainer.visibility = View.VISIBLE
 
                     // Μετατροπή totalDistance (σε μέτρα) σε χιλιόμετρα
                     val distanceInKm = totalDistance / 1000.0
 
-                    // 1. Υπολογισμός Μέσης Ταχύτητας (Average Speed)
-                    val avgSpeed = if (elapsedTime > 0) (distanceInKm / elapsedTime) * 3600 else 0.0
+                    // 1. Υπολογισμός Μέσης Ταχύτητας με βάση τα δευτερόλεπτα που έχουν καταγραφεί πραγματικά
+                    val avgSpeed = if (elapsedTimeInSeconds > 0) (distanceInKm / elapsedTimeInSeconds) * 3600 else 0.0
 
-                    // 2. Ενημέρωση των νέων TextViews (Οι 3 στήλες)
+                    // 2. Ενημέρωση των TextViews
                     tvDistance.text = String.format("%.2f km", distanceInKm)
-                    tvTime.text = formatTime(elapsedTime)
+                    tvTime.text = formatTime(elapsedTimeInSeconds) // Σιγουρέψου ότι η formatTime δέχεται δευτερόλεπτα
                     tvCurrentSpeed.text = String.format("%.1f", currentSpeed)
                     tvAvgSpeed.text = String.format("%.1f", avgSpeed)
-                    statsContainer.visibility = View.VISIBLE // Εμφάνιση του πάνελ
-
-                    // ΠΡΟΣΟΧΗ: Διαγράψαμε το statsDisplay.text γιατί πλέον
-                    // χρησιμοποιούμε τα tvDistance, tvTime κτλ.
 
                     handler.postDelayed(this, 1000)
                 }
@@ -807,6 +817,8 @@ class MainActivity : AppCompatActivity() {
 
     private val locationReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            // ΠΡΟΣΘΗΚΗ: Αν είναι σε παύση, αγνόησε τα δεδομένα που έρχονται στο UI
+            if (LocationTrackingService.isServicePaused) return
             val lat = intent?.getDoubleExtra("lat", 0.0) ?: 0.0
             val lng = intent?.getDoubleExtra("lng", 0.0) ?: 0.0
 
