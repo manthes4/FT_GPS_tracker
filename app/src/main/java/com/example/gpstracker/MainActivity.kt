@@ -135,7 +135,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var statsDisplay: TextView
     private lateinit var fabLoadKml: View
     private lateinit var fabTogglePOI: View  // New FAB for POI toggle
-    private var roadOverlay: Polyline? = null // Μεταβλητή για να διαχειριζόμαστε τη γραμμή
+    private var roadOverlay: Polyline? = null
+    private var roadBorderOverlay: Polyline? = null // <--- ΠΡΟΣΘΗΚΗ
 
     private var startPoint: GeoPoint? = null
     private var endPoint: GeoPoint? = null
@@ -344,7 +345,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
                 // Φωνητική ενημέρωση
                 if (navigationSteps.isNotEmpty()) {
-                    speak("Η σχεδίαση ολοκληρώθηκε. Υπολογίστηκαν ${navigationSteps.size} σημεία. Ξεκινήστε την πορεία σας.")
+                    speak("Η σχεδίαση ολοκληρώθηκε.Ξεκινήστε την πορεία σας.")
                 }
             }
         }
@@ -473,7 +474,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         Log.d("TTS_DEBUG", "📢 ΚΛΗΘΗΚΕ Η ONINIT! Status: $status")
 
         if (status == TextToSpeech.SUCCESS) {
-            val result = tts?.setLanguage(Locale.US)
+            val result = tts?.setLanguage(Locale("el", "GR"))
 
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 Log.e("TTS_DEBUG", "❌ Η γλώσσα δεν υποστηρίζεται!")
@@ -527,6 +528,27 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         } else {
             Log.d("TTS_DEBUG", "To TTS δεν είναι έτοιμο ακόμα. Προσθήκη στην ουρά: $text")
             ttsQueue.add(text)
+        }
+    }
+
+    private fun formatGreekInstruction(rawInstruction: String, distanceInMeters: Float, isLastStep: Boolean): String {
+        val clean = rawInstruction.lowercase()
+        val distStr = distanceInMeters.toInt()
+
+        val action = when {
+            clean.contains("turn left") || clean.contains("slight left") || clean.contains("sharp left") -> "στρίψτε αριστερά"
+            clean.contains("turn right") || clean.contains("slight right") || clean.contains("sharp right") -> "στρίψτε δεξιά"
+            clean.contains("continue") || clean.contains("straight") -> "συνεχίστε ευθεία"
+            clean.contains("destination") || clean.contains("waypoint") || clean.contains("reached") -> {
+                if (isLastStep) "φτάσατε στον προορισμό σας" else "συνεχίστε στην πορεία σας"
+            }
+            else -> "συνεχίστε ευθεία"
+        }
+
+        return if (distStr <= 12) {
+            "Τώρα $action"
+        } else {
+            "Σε $distStr μέτρα, $action"
         }
     }
 
@@ -822,8 +844,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         // 2. ΔΗΜΙΟΥΡΓΙΑ POLYLINES ΚΑΤΑΓΡΑΦΗΣ (Glow Style)
         borderRoute = Polyline().apply {
-            outlinePaint.color = Color.parseColor("#FAF6F5")
-            outlinePaint.strokeWidth = 18.0f
+            outlinePaint.color = Color.parseColor("#030100")
+            outlinePaint.strokeWidth = 17.0f
             outlinePaint.strokeJoin = Paint.Join.ROUND
             outlinePaint.strokeCap = Paint.Cap.ROUND
             outlinePaint.isAntiAlias = true
@@ -988,7 +1010,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 lastTimeStr = tvTime.text.toString()
                 var lastCaloriesStr = tvGrade.text.toString()
 
-                // --- REAL-TIME TURN-BY-TURN NAVIGATION (ΔΙΟΡΘΩΜΕΝΟ ΜΕ LOGS & ΑΥΞΗΜΕΝΗ ΑΠΟΣΤΑΣΗ) ---
+// --- REAL-TIME TURN-BY-TURN NAVIGATION (ΒΕΛΤΙΩΜΕΝΗ ΕΚΦΩΝΗΣΗ) ---
+                // --- REAL-TIME TURN-BY-TURN NAVIGATION ---
                 if (navigationSteps.isNotEmpty()) {
                     val nextStep = navigationSteps.firstOrNull { !it.hasBeenAnnounced }
 
@@ -1001,13 +1024,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         )
                         val distanceToTurn = results[0]
 
-                        // Εκτύπωση στο Logcat για να βλέπουμε την ακριβή απόσταση
                         Log.d("NAV_DEBUG", "Απόσταση από τη στροφή: ${distanceToTurn.toInt()}m | Οδηγία: ${nextStep.instruction}")
 
-                        // Αυξάνουμε το όριο στα 40 μέτρα για να πιάνει τη στροφή εγκαίρως
-                        if (distanceToTurn <= 40f) {
-                            Log.d("NAV_DEBUG", "🎯 ΕΝΕΡΓΟΠΟΙΗΣΗ ΦΩΝΗΣ: ${nextStep.instruction}")
-                            speak(nextStep.instruction)
+                        if (distanceToTurn <= 50f) {
+                            // Έλεγχος αν αυτό το step είναι το τελευταίο στη λίστα
+                            val isLastStep = (nextStep == navigationSteps.last())
+
+                            val greekSpeech = formatGreekInstruction(nextStep.instruction, distanceToTurn, isLastStep)
+
+                            Log.d("NAV_DEBUG", "🎯 ΕΝΕΡΓΟΠΟΙΗΣΗ ΦΩΝΗΣ: $greekSpeech")
+                            speak(greekSpeech)
+
                             nextStep.hasBeenAnnounced = true
                         }
                     } else {
@@ -1702,8 +1729,8 @@ $coords
                 // Δημιουργία Polyline για περίγραμμα
                 kmlBorderRoute = Polyline().apply {
                     outlinePaint.isAntiAlias = true
-                    outlinePaint.color = Color.parseColor("#FAF6F5") // 50% transparency
-                    outlinePaint.strokeWidth = 18.0f
+                    outlinePaint.color = Color.parseColor("#030100") // 50% transparency
+                    outlinePaint.strokeWidth = 17.0f
                     outlinePaint.strokeJoin = Paint.Join.ROUND
                     outlinePaint.strokeCap = Paint.Cap.ROUND
                     outlinePaint.maskFilter = BlurMaskFilter(10f, BlurMaskFilter.Blur.NORMAL)
@@ -1713,7 +1740,7 @@ $coords
                 kmlRoute = Polyline().apply {
                     outlinePaint.isAntiAlias = true
                     outlinePaint.color = Color.parseColor("#0456B5")
-                    outlinePaint.strokeWidth = 8.0f
+                    outlinePaint.strokeWidth = 9.0f
                     outlinePaint.strokeJoin = Paint.Join.ROUND
                     outlinePaint.strokeCap = Paint.Cap.ROUND
                 }
@@ -2021,13 +2048,35 @@ $coords
 
                 runOnUiThread {
                     if (road.mStatus == Road.STATUS_OK) {
+                        // --- 0. ΑΦΑΙΡΕΣΗ ΠΑΛΙΩΝ OVERLAYS ---
+                        roadBorderOverlay?.let { map.overlays.remove(it) }
                         roadOverlay?.let { map.overlays.remove(it) }
-                        roadOverlay = RoadManager.buildRoadOverlay(road)
-                        roadOverlay?.outlinePaint?.apply {
-                            color = Color.parseColor("#5E31F7")
-                            strokeWidth = 12f
+
+                        // --- 1. ΔΗΜΙΟΥΡΓΙΑ ΜΑΥΡΟΥ ΠΕΡΙΓΡΑΜΜΑΤΟΣ (BORDER) ---
+                        roadBorderOverlay = RoadManager.buildRoadOverlay(road).apply {
+                            outlinePaint.apply {
+                                color = Color.BLACK
+                                strokeWidth = 20f // Πιο πλατύ για να φαίνεται ως περίγραμμα
+                                strokeCap = Paint.Cap.ROUND
+                                strokeJoin = Paint.Join.ROUND
+                                isAntiAlias = true
+                            }
                         }
-                        map.overlays.add(1, roadOverlay)
+
+                        // --- 2. ΔΗΜΙΟΥΡΓΙΑ ΚΥΡΙΟΥ ΚΙΤΡΙΝΟΥ OVERLAY (CORE) ---
+                        roadOverlay = RoadManager.buildRoadOverlay(road).apply {
+                            outlinePaint.apply {
+                                color = Color.parseColor("#EAF731")
+                                strokeWidth = 12f
+                                strokeCap = Paint.Cap.ROUND
+                                strokeJoin = Paint.Join.ROUND
+                                isAntiAlias = true
+                            }
+                        }
+
+                        // --- 3. ΠΡΟΣΘΗΚΗ ΣΤΟΝ ΧΑΡΤΗ (Το border μπαίνει πρώτο, από κάτω) ---
+                        map.overlays.add(1, roadBorderOverlay)
+                        map.overlays.add(2, roadOverlay)
 
                         // Σύντομο info χωρίς toast
                         val walkingMinutes = (road.mLength / 5.0) * 60.0
@@ -2043,12 +2092,11 @@ $coords
                         map.zoomToBoundingBox(road.mBoundingBox.increaseByScale(1.3f), true)
                         map.invalidate()
 
-// --- 1. ΚΑΘΑΡΙΣΜΟΣ & ΕΞΑΓΩΓΗ ΟΔΗΓΙΩΝ ΠΛΟΗΓΗΣΗΣ ---
+                        // --- 4. ΚΑΘΑΡΙΣΜΟΣ & ΕΞΑΓΩΓΗ ΟΔΗΓΙΩΝ ΠΛΟΗΓΗΣΗΣ ---
                         navigationSteps.clear()
 
                         for (node in road.mNodes) {
                             if (!node.mInstructions.isNullOrEmpty()) {
-                                // Καθαρισμός τυχόν HTML tags από τις οδηγίες του OSRM
                                 val cleanInstruction = android.text.Html.fromHtml(node.mInstructions, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
 
                                 navigationSteps.add(
@@ -2060,25 +2108,41 @@ $coords
                             }
                         }
 
+                        // 🎯 ΑΓΝΟΟΥΜΕ ΤΗΝ ΠΡΩΤΗ ΟΔΗΓΙΑ (Start Point / Waypoint)
+                        if (navigationSteps.isNotEmpty()) {
+                            val firstStep = navigationSteps.first()
+                            val cleanFirst = firstStep.instruction.lowercase()
+                            if (cleanFirst.contains("waypoint") || cleanFirst.contains("head") || cleanFirst.contains("depart")) {
+                                firstStep.hasBeenAnnounced = true // Τη μαρκάρουμε ως ολοκληρωμένη εξ αρχής
+                            }
+                        }
+
                         Log.d("NAV_DEBUG", "Προστέθηκαν ${navigationSteps.size} οδηγίες πλοήγησης.")
 
-                        // --- 2. ΑΡΧΙΚΗ ΕΚΦΩΝΗΣΗ ΜΟΛΙΣ ΣΧΕΔΙΑΣΤΕΙ Η ΔΙΑΔΡΟΜΗ ---
-                        val distanceFormatted = String.format("%.2f", road.mLength)
-                        val initialMessage = "Η διαδρομή υπολογίστηκε. Συνολική απόσταση $distanceFormatted χιλιόμετρα. Εκτιμώμενος χρόνος $timeText. Ξεκινήστε την πορεία σας."
+                        // --- 5. ΑΡΧΙΚΗ ΕΚΦΩΝΗΣΗ ΜΟΛΙΣ ΣΧΕΔΙΑΣΤΕΙ Η ΔΙΑΔΡΟΜΗ ---
+                        val readableDistance = formatDistanceForSpeech(road.mLength)
+                        val initialMessage = "Η διαδρομή υπολογίστηκε. Συνολική απόσταση $readableDistance. Εκτιμώμενος χρόνος $timeText."
                         speak(initialMessage)
 
                     } else {
                         speak("Αποτυχία υπολογισμού διαδρομής.")
                     }
-
-                    // Εκφώνηση οδηγιών
-                    val speechText = "Η σχεδίαση ολοκληρώθηκε. Η συνολική απόσταση είναι ${String.format("%.2f", road.mLength)} χιλιόμετρα."
-                    speak(speechText)
                 }
             } catch (e: Exception) {
                 Log.e("ROUTING", e.message ?: "")
             }
         }.start()
+    }
+
+    private fun formatDistanceForSpeech(distanceInKm: Double): String {
+        val distanceInMeters = (distanceInKm * 1000).toInt()
+
+        return if (distanceInMeters < 1000) {
+            "$distanceInMeters μέτρα"
+        } else {
+            val kmFormatted = String.format("%.1f", distanceInKm)
+            "$kmFormatted χιλιόμετρα"
+        }
     }
 
     private fun handleLongClick(point: GeoPoint) {

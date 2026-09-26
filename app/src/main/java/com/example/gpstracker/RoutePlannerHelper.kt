@@ -11,33 +11,49 @@ import org.osmdroid.views.overlay.Polyline
 
 class RoutePlannerHelper(private val context: Context, private val map: MapView) {
 
-    // 1. ΟΡΙΣΜΟΣ ΤΟΥ INTERFACE (Το "τηλέφωνο" επικοινωνίας) <--- ΠΡΟΣΘΗΚΗ
     interface OnRouteUpdateListener {
         fun onDistanceChanged(newDistance: Double, lastPoint: GeoPoint)
     }
 
-    // 2. Η ΜΕΤΑΒΛΗΤΗ ΤΟΥ LISTENER <--- ΠΡΟΣΘΗΚΗ
     var routeUpdateListener: OnRouteUpdateListener? = null
 
     private var planningPoints = mutableListOf<GeoPoint>()
     private var planningMarkers = mutableListOf<Marker>()
 
-    private var planningPolyline = Polyline().apply {
-        outlinePaint.color = Color.RED
-        outlinePaint.strokeWidth = 15f
+    // 1. Εξωτερικό Μαύρο Περίγραμμα (Border)
+    private var planningBorderPolyline = Polyline().apply {
+        outlinePaint.color = Color.BLACK
+        outlinePaint.strokeWidth = 17f
         outlinePaint.strokeCap = Paint.Cap.ROUND
+        outlinePaint.strokeJoin = Paint.Join.ROUND
+        outlinePaint.isAntiAlias = true
+    }
+
+    // 2. Εσωτερικό Έγχρωμο Γέμισμα (Core)
+    private var planningPolyline = Polyline().apply {
+        outlinePaint.color = Color.parseColor("#00D7E6")
+        outlinePaint.strokeWidth = 9f
+        outlinePaint.strokeCap = Paint.Cap.ROUND
+        outlinePaint.strokeJoin = Paint.Join.ROUND
         outlinePaint.isAntiAlias = true
     }
 
     fun addPoint(point: GeoPoint): Double {
         if (planningPoints.isEmpty()) {
+            planningBorderPolyline.setPoints(mutableListOf())
             planningPolyline.setPoints(mutableListOf())
+
+            // <--- ΠΡΟΣΘΗΚΗ: Προσθέτουμε πρώτα το border και μετά την κύρια γραμμή
+            if (!map.overlays.contains(planningBorderPolyline)) {
+                map.overlays.add(planningBorderPolyline)
+            }
             if (!map.overlays.contains(planningPolyline)) {
                 map.overlays.add(planningPolyline)
             }
         }
 
         planningPoints.add(point)
+        planningBorderPolyline.addPoint(point) // <--- ΠΡΟΣΘΗΚΗ
         planningPolyline.addPoint(point)
 
         val marker = Marker(map).apply {
@@ -77,11 +93,12 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
 
         planningPoints.clear()
         planningPoints.addAll(newPoints)
+
+        planningBorderPolyline.setPoints(planningPoints) // <--- ΠΡΟΣΘΗΚΗ
         planningPolyline.setPoints(planningPoints)
 
         map.invalidate()
 
-        // 3. ΕΝΗΜΕΡΩΣΗ ΤΗΣ MAIN ACTIVITY ΤΗΝ ΩΡΑ ΤΟΥ DRAG <--- ΠΡΟΣΘΗΚΗ
         val newDistance = calculateTotalDistance()
         val lastPoint = planningPoints.lastOrNull()
         if (lastPoint != null) {
@@ -89,7 +106,7 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
         }
     }
 
-    fun calculateTotalDistance(): Double { // Αφαιρέθηκε το private
+    fun calculateTotalDistance(): Double {
         var total = 0.0
         if (planningPoints.size < 2) return 0.0
 
@@ -106,6 +123,7 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
     fun undoLastPoint(): Double {
         if (planningPoints.isNotEmpty()) {
             planningPoints.removeAt(planningPoints.size - 1)
+            planningBorderPolyline.setPoints(planningPoints) // <--- ΠΡΟΣΘΗΚΗ
             planningPolyline.setPoints(planningPoints)
 
             if (planningMarkers.isNotEmpty()) {
@@ -118,8 +136,13 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
     }
 
     fun clearAll() {
+        // <--- ΠΡΟΣΘΗΚΗ: Καθαρισμός και του border
+        map.overlays.remove(planningBorderPolyline)
+        planningBorderPolyline.setPoints(mutableListOf())
+
         map.overlays.remove(planningPolyline)
         planningPolyline.setPoints(mutableListOf())
+
         for (marker in planningMarkers) {
             map.overlays.remove(marker)
         }
@@ -128,7 +151,6 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
         map.invalidate()
     }
 
-    // Επιστρέφει τη λίστα με τα σημεία της σχεδιασμένης διαδρομής
     fun getPlannedPoints(): List<GeoPoint> {
         return planningPoints
     }
