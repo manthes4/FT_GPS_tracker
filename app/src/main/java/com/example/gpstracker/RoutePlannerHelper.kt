@@ -89,7 +89,7 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
         }
     }
 
-    private fun calculateTotalDistance(): Double {
+    fun calculateTotalDistance(): Double { // Αφαιρέθηκε το private
         var total = 0.0
         if (planningPoints.size < 2) return 0.0
 
@@ -126,5 +126,10 @@ class RoutePlannerHelper(private val context: Context, private val map: MapView)
         planningMarkers.clear()
         planningPoints.clear()
         map.invalidate()
+    }
+
+    // Επιστρέφει τη λίστα με τα σημεία της σχεδιασμένης διαδρομής
+    fun getPlannedPoints(): List<GeoPoint> {
+        return planningPoints
     }
 }

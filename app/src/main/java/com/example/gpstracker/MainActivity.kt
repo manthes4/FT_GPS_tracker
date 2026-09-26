@@ -82,10 +82,12 @@ import android.widget.LinearLayout
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.TilesOverlay
 import org.osmdroid.views.overlay.infowindow.MarkerInfoWindow
+import android.speech.tts.TextToSpeech
+import android.content.BroadcastReceiver
+import com.example.gpstracker.LocationTrackingService
+import android.speech.tts.UtteranceProgressListener
 
-private var currentSearchMarker: Marker? = null
-
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var map: MapView
     private var currentSpeed: Float = 0f
@@ -93,6 +95,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statsContainer: LinearLayout // Δήλωση στην κορυφή
     private var hasZoomedToTracking = false
     private var elapsedTimeInSeconds = 0L // Κρατάει τα δευτερόλεπτα της διαδρομής
+
+    private var currentSearchMarker: Marker? = null
+    private val navigationSteps = mutableListOf<NavigationStep>()
 
     // Μια λίστα που θα κρατάει όλα τα σημεία της διαδρομής
     private val pathPoints = mutableListOf<org.osmdroid.util.GeoPoint>()
@@ -174,6 +179,10 @@ class MainActivity : AppCompatActivity() {
     private var lastSpeedStr: String = "0.0 km/h"
     private var lastSteps: String = "0"
 
+    private var tts: TextToSpeech? = null
+    private var isTtsReady = false
+    private val ttsQueue = mutableListOf<String>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -187,6 +196,12 @@ class MainActivity : AppCompatActivity() {
         // Ρυθμίσεις Μνήμης (Υψηλές τιμές για ομαλότητα)
         conf.cacheMapTileCount = 30
         conf.cacheMapTileOvershoot = 20
+
+        // Αρχικοποίηση TextToSpeech
+        Log.d("TTS_DEBUG", "🚀 Εκκίνηση δημιουργίας TextToSpeech...")
+
+        // Προσπάθεια αρχικοποίησης με τη μηχανή της Google ρητά
+        tts = TextToSpeech(applicationContext, this, "com.google.android.tts")
 
         // --- 2. LAYOUT & IDS (ΜΙΑ ΦΟΡΑ) ---
         setContentView(R.layout.activity_main)
@@ -307,11 +322,30 @@ class MainActivity : AppCompatActivity() {
         btnPlan.setOnClickListener {
             isPlanningEnabled = !isPlanningEnabled
             if (isPlanningEnabled) {
-                showCustomToast("Planning Mode: ON (Long press on map)")
+                showCustomToast("Planning Mode: ON")
                 btnPlan.setColorFilter(Color.GREEN)
+                navigationSteps.clear() // Καθαρισμός προηγούμενων οδηγιών
             } else {
                 showCustomToast("Planning Mode: OFF")
                 btnPlan.setColorFilter(null)
+
+                // Παίρνουμε τα σημεία που σχεδίασε ο χρήστης
+                val manualPoints = routePlanner.getPlannedPoints()
+                navigationSteps.clear()
+
+                manualPoints.forEachIndexed { index, point ->
+                    val instructionText = if (index == manualPoints.lastIndex) {
+                        "Φτάσατε στον τελικό προορισμό."
+                    } else {
+                        "Συνεχίστε προς το σημείο ${index + 1}."
+                    }
+                    navigationSteps.add(NavigationStep(location = point, instruction = instructionText))
+                }
+
+                // Φωνητική ενημέρωση
+                if (navigationSteps.isNotEmpty()) {
+                    speak("Η σχεδίαση ολοκληρώθηκε. Υπολογίστηκαν ${navigationSteps.size} σημεία. Ξεκινήστε την πορεία σας.")
+                }
             }
         }
 
@@ -435,11 +469,81 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onInit(status: Int) {
+        Log.d("TTS_DEBUG", "📢 ΚΛΗΘΗΚΕ Η ONINIT! Status: $status")
+
+        if (status == TextToSpeech.SUCCESS) {
+            val result = tts?.setLanguage(Locale.US)
+
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                Log.e("TTS_DEBUG", "❌ Η γλώσσα δεν υποστηρίζεται!")
+            } else {
+                isTtsReady = true
+                Log.d("TTS_DEBUG", "✅ Το TTS είναι ΕΤΟΙΜΟ! Εκτέλεση ${ttsQueue.size} μηνυμάτων.")
+
+                tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) {
+                        Log.d("TTS_DEBUG", "🔊 Η ομιλία ΞΕΚΙΝΗΣΕ: $utteranceId")
+                    }
+
+                    override fun onDone(utteranceId: String?) {
+                        Log.d("TTS_DEBUG", "✅ Η ομιλία ΟΛΟΚΛΗΡΩΘΗΚΕ: $utteranceId")
+                    }
+
+                    override fun onError(utteranceId: String?) {
+                        Log.e("TTS_DEBUG", "❌ ΣΦΑΛΜΑ στην ομιλία: $utteranceId")
+                    }
+                })
+
+                // Αδειάζουμε την ουρά
+                val pendingList = ArrayList(ttsQueue)
+                ttsQueue.clear()
+                for (text in pendingList) {
+                    speak(text)
+                }
+            }
+        } else {
+            Log.e("TTS_DEBUG", "❌ Αποτυχία αρχικοποίησης TTS status: $status")
+        }
+    }
+
+    // 2. ΔΙΟΡΘΩΜΕΝΗ SPEAK
+    private fun speak(text: String) {
+        if (text.isBlank()) return
+
+        if (isTtsReady) {
+            val params = Bundle().apply {
+                // Χρήση του STREAM_MUSIC (Media volume)
+                putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_MUSIC)
+            }
+
+            // Μοναδικό ID για κάθε ομιλία
+            val utteranceId = "NAV_UTTERANCE_${System.currentTimeMillis()}"
+
+            // Αλλάζουμε από QUEUE_FLUSH σε QUEUE_ADD για να μην ακυρώνει την προηγούμενη πρόταση!
+            val result = tts?.speak(text, TextToSpeech.QUEUE_ADD, params, utteranceId)
+
+            Log.d("TTS_DEBUG", "Κλήση speak('$text') -> Αποτέλεσμα: $result")
+        } else {
+            Log.d("TTS_DEBUG", "To TTS δεν είναι έτοιμο ακόμα. Προσθήκη στην ουρά: $text")
+            ttsQueue.add(text)
+        }
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putBoolean("isTracking", isTracking)
         outState.putFloat("totalDistance", totalDistance)
         outState.putLong("startTime", startTime)
+    }
+
+    override fun onDestroy() {
+        // Καθαρισμός για να μην "κολλάει" το TTS engine σε επόμενες εκτελέσεις
+        tts?.let {
+            it.stop()
+            it.shutdown()
+        }
+        super.onDestroy()
     }
 
     private fun createNotificationChannel() {
@@ -661,90 +765,74 @@ class MainActivity : AppCompatActivity() {
             ) != PackageManager.PERMISSION_GRANTED
         ) return
 
-        // 1. ΚΑΘΑΡΙΣΜΟΣ ΧΑΡΤΗ ΚΑΙ ΜΝΗΜΗΣ
+        // 1. ΚΑΘΑΡΙΣΜΟΣ ΧΑΡΤΗ ΚΑΙ ΜΝΗΜΗΣ (ΔΙΑΤΗΡΩΝΤΑΣ ΤΗ ΣΧΕΔΙΑΣΜΕΝΗ ΔΙΑΔΡΟΜΗ)
 
-        // ΑΥΤΟ ΕΙΝΑΙ ΤΟ ΚΡΙΣΙΜΟ: Καθαρίζουμε τις παλιές συντεταγμένες από τα SharedPreferences
         val sharedPrefs = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         sharedPrefs.edit().remove("route_data").apply()
 
-        // --- ΚΛΕΙΣΙΜΟ ΟΛΩΝ ΤΩΝ INFO WINDOWS ---
-        // Κλείνει τα InfoWindows όλων των markers που υπάρχουν στον χάρτη
-        for (overlay in map.overlays) {
-            if (overlay is Marker) {
+        // --- ΔΙΟΡΘΩΣΗ: Αφαιρούμε ΜΟΝΟ τα overlays καταγραφής/KML και ΌΧΙ τη σχεδιασμένη διαδρομή ---
+        // Κλείνουμε InfoWindows μόνο αν ΔΕΝ ανήκουν στη σχεδιασμένη διαδρομή
+        for (overlay in map.overlays.toList()) {
+            if (overlay is Marker && overlay != currentSearchMarker && overlay != endMarker) {
                 overlay.closeInfoWindow()
             }
         }
 
-        map.overlays.removeAll { it is Marker || it is Polyline || it is FolderOverlay }
-
-        // 1. ΚΑΘΑΡΙΣΜΟΣ ΧΑΡΤΗ (Ο κώδικας που είχες παραμένει ίδιος)
+        // Καθαρίζουμε μόνο τα συγκεκριμένα overlays καταγραφής (αποφεύγουμε το γενικό removeAll)
         kmlRoute?.let { map.overlays.remove(it) }
         kmlBorderRoute?.let { map.overlays.remove(it) }
         route?.let { map.overlays.remove(it) }
         borderRoute?.let { map.overlays.remove(it) }
         startMarker?.let { map.overlays.remove(it) }
-        endMarker?.let { map.overlays.remove(it) }
-        greenMarker?.let { map.overlays.remove(it) }
         kmlGreenMarker?.let { map.overlays.remove(it) }
         kmlPurpleMarker?.let { map.overlays.remove(it) }
         initialLocationMarker?.let { map.overlays.remove(it) }
         initialLocationMarker = null
 
-        // Reset markers και variables
         startMarker = null
-        endMarker = null
-        greenMarker = null
         kmlGreenMarker = null
         kmlPurpleMarker = null
-        lastLocation = null // Πολύ σημαντικό για να ξεκινήσει σωστά η νέα μέτρηση
+        lastLocation = null
         isTracking = true
-        hasZoomedToTracking = false // <--- ΠΡΟΣΘΕΣΕ ΑΥΤΟ ΕΔΩ
+        hasZoomedToTracking = false
         totalDistance = 0f
-        currentSpeed = 0f // Μηδένισε και την ταχύτητα για σιγουριά
+        currentSpeed = 0f
         startTime = System.currentTimeMillis()
-        pathPoints.clear() // Καθαρισμός για τη νέα διαδρομή
+        pathPoints.clear() // Καθαρισμός μόνο των σημείων της ΝΕΑΣ καταγραφής
 
-// ΚΑΘΑΡΙΣΜΟΣ ΤΟΥ ΖΩΝΤΑΝΟΥ ΒΕΛΟΥΣ
+        // ⚠️ ΠΡΟΣΟΧΗ: ΔΕΝ καθαρίζουμε τα navigationSteps εδώ!
+
         currentLocationMarker?.let { map.overlays.remove(it) }
         currentLocationMarker = null
 
-// Μηδενισμός θερμίδων στη μνήμη του Service
+        // Μηδενισμός θερμίδων στη μνήμη του Service
         LocationTrackingService.serviceTotalCalories = 0.0
 
-        tvGrade.text = "0 kcal" // <-- ΕΔΩ ΑΛΛΑΞΕ! Τώρα ξεκινάει από 0 kcal
+        tvGrade.text = "0 kcal"
         tvGrade.setTextColor(Color.WHITE)
         tvDistance.text = "0.00 km"
 
         elapsedTimeInSeconds = 0L
 
-        // 5. Καθαρισμός UI (Αν θες να μηδενίζονται αμέσως)
         tvTime.text = "00:00:00"
         tvAvgSpeed.text = "0.0"
-        // Μην ξεχάσεις τα βήματα!
         tvSteps.text = "0"
 
-        // Μέσα στη startTracking() σου, εκεί που καθαρίζεις τα overlays:
-        currentLocationMarker?.let { map.overlays.remove(it) }
-        currentLocationMarker = null
+        map.invalidate()
 
-        map.invalidate() // Ανανέωση χάρτη για να φύγουν όλα τα παλιά
-
-        // 2. ΔΗΜΙΟΥΡΓΙΑ POLYLINES (Glow Style)
+        // 2. ΔΗΜΙΟΥΡΓΙΑ POLYLINES ΚΑΤΑΓΡΑΦΗΣ (Glow Style)
         borderRoute = Polyline().apply {
-            // Εξωτερική λάμψη (Glow) - Ημιδιάφανο μπλε
-            outlinePaint.color = Color.parseColor("#FAF6F5") // 50% transparency Cyan
-            outlinePaint.strokeWidth = 18.0f // Λίγο πιο παχύ για το εφέ λάμψης
+            outlinePaint.color = Color.parseColor("#FAF6F5")
+            outlinePaint.strokeWidth = 18.0f
             outlinePaint.strokeJoin = Paint.Join.ROUND
             outlinePaint.strokeCap = Paint.Cap.ROUND
             outlinePaint.isAntiAlias = true
-            // Προσθήκη Blur effect αν θες ακόμα πιο μαλακό αποτέλεσμα (προαιρετικό)
             outlinePaint.maskFilter = BlurMaskFilter(10f, BlurMaskFilter.Blur.NORMAL)
         }
 
         route = Polyline().apply {
-            // Η κεντρική γραμμή - Έντονο Cyan/Λευκό-Μπλε
             outlinePaint.color = Color.parseColor("#E60000")
-            outlinePaint.strokeWidth = 9.0f // Πιο λεπτό για να φαίνεται το glow από κάτω
+            outlinePaint.strokeWidth = 9.0f
             outlinePaint.strokeJoin = Paint.Join.ROUND
             outlinePaint.strokeCap = Paint.Cap.ROUND
             outlinePaint.isAntiAlias = true
@@ -753,49 +841,46 @@ class MainActivity : AppCompatActivity() {
         map.overlays.add(borderRoute)
         map.overlays.add(route)
 
-        //χρειαζεται για τον καθαρισμο του χαρτη
-        map.invalidate() // Ανανέωση για να φανεί ο άδειος χάρτης
+        map.invalidate()
 
-        // 3. ΕΚΚΙΝΗΣΗ SERVICE
+        // 3. ΕΚΚΙΝΗΣΗ SERVICE & ΦΩΝΗΤΙΚΗ ΕΙΔΟΠΟΙΗΣΗ
         val intent = Intent(this, LocationTrackingService::class.java)
         ContextCompat.startForegroundService(this, intent)
 
-        // ΠΡΟΣΘΕΣΕ ΑΥΤΟ ΕΔΩ:
-        currentSteps = 0 // Μηδενίζουμε για τη νέα διαδρομή
+        currentSteps = 0
         stepCounterManager.start()
 
         showCustomToast("Tracking started")
-        //zoomToLastKnownLocation()
+
+        // Φωνητική επιβεβαίωση
+        if (navigationSteps.isNotEmpty()) {
+            speak("Η καταγραφή ξεκίνησε. Ακολουθήστε τις οδηγίες πλοήγησης.")
+        } else {
+            speak("Η καταγραφή ξεκίνησε.")
+        }
+
         updateNotification("Tracking started")
 
-        // 4. ΕΝΗΜΕΡΩΣΗ UI (ΜΟΝΟ ΓΙΑ ΤΟ ΧΡΟΝΟΜΕΤΡΟ)
+        // 4. ΕΝΗΜΕΡΩΣΗ UI
         updateStatsRunnable = object : Runnable {
             override fun run() {
                 if (isTracking) {
-                    // --- ΤΟ ΚΛΕΙΔΙ ΓΙΑ ΤΗΝ ΠΑΥΣΗ ---
-                    // Αν είμαστε σε παύση, ξανακάλεσε το Runnable μετά από 1 δευτερόλεπτο
-                    // ΧΩΡΙΣ να προσθέσεις χρόνο και χωρίς να αλλάξεις τίποτα στην οθόνη!
                     if (LocationTrackingService.isServicePaused) {
                         handler.postDelayed(this, 1000)
                         return
                     }
 
-                    // Αυξάνουμε τον χρόνο κατά 1 δευτερόλεπτο αφού η εφαρμογή καταγράφει κανονικά
                     elapsedTimeInSeconds++
 
                     tvAccuracy.visibility = View.VISIBLE
                     tvCurrentGrade.visibility = View.VISIBLE
                     statsContainer.visibility = View.VISIBLE
 
-                    // Μετατροπή totalDistance (σε μέτρα) σε χιλιόμετρα
                     val distanceInKm = totalDistance / 1000.0
-
-                    // 1. Υπολογισμός Μέσης Ταχύτητας με βάση τα δευτερόλεπτα που έχουν καταγραφεί πραγματικά
                     val avgSpeed = if (elapsedTimeInSeconds > 0) (distanceInKm / elapsedTimeInSeconds) * 3600 else 0.0
 
-                    // 2. Ενημέρωση των TextViews
                     tvDistance.text = String.format("%.2f km", distanceInKm)
-                    tvTime.text = formatTime(elapsedTimeInSeconds) // Σιγουρέψου ότι η formatTime δέχεται δευτερόλεπτα
+                    tvTime.text = formatTime(elapsedTimeInSeconds)
                     tvCurrentSpeed.text = String.format("%.1f", currentSpeed)
                     tvAvgSpeed.text = String.format("%.1f", avgSpeed)
 
@@ -805,7 +890,7 @@ class MainActivity : AppCompatActivity() {
         }
         handler.post(updateStatsRunnable)
 
-        // 5. ΕΓΓΡΑΦΗ ΤΟΥ RECEIVER (Με το flag για Android 14)
+        // 5. ΕΓΓΡΑΦΗ ΤΟΥ RECEIVER
         val filter = IntentFilter("LocationUpdate")
         androidx.core.content.ContextCompat.registerReceiver(
             this,
@@ -815,98 +900,125 @@ class MainActivity : AppCompatActivity() {
         )
     }
 
-    private val locationReceiver = object : android.content.BroadcastReceiver() {
+    private val locationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            // ΠΡΟΣΘΗΚΗ: Αν είναι σε παύση, αγνόησε τα δεδομένα που έρχονται στο UI
-            if (LocationTrackingService.isServicePaused) return
-            val lat = intent?.getDoubleExtra("lat", 0.0) ?: 0.0
-            val lng = intent?.getDoubleExtra("lng", 0.0) ?: 0.0
+            if (intent?.action == "LocationUpdate") {
+                // 1. Παίρνουμε τις συντεταγμένες από το Intent
+                val lat = intent.getDoubleExtra("lat", 0.0)
+                val lng = intent.getDoubleExtra("lng", 0.0)
 
-            currentSpeed = intent?.getFloatExtra("current_speed", 0f) ?: 0f
-            val accuracy = intent?.getFloatExtra("accuracy", 0f) ?: 0f
-            val roadGrade = intent?.getDoubleExtra("grade", 0.0) ?: 0.0
-            val deviceGrade = intent?.getDoubleExtra("device_pitch", 0.0) ?: 0.0
-            val bearing = intent?.getFloatExtra("bearing", 0f) ?: 0f
-            val newPoint = GeoPoint(lat, lng)
-            val isValid = intent?.getBooleanExtra("is_valid", false) ?: false
-            // ΜΟΝΟ αν το σημείο είναι έγκυρο (δηλ. κινούμαστε) το αποθηκεύουμε και το σχεδιάζουμε
-            if (isValid) {
-                // 1. Αποθήκευση στη λίστα για το KML Export
-                pathPoints.add(newPoint)
+                // Δημιουργούμε το mPoint / newPoint
+                val newPoint = GeoPoint(lat, lng)
+                val mPoint = newPoint
 
-                // 2. Σχεδίαση της γραμμής στον χάρτη
-                route?.addPoint(newPoint)
-                borderRoute?.addPoint(newPoint)
-            }
+                currentSpeed = intent.getFloatExtra("current_speed", 0f)
+                val accuracy = intent.getFloatExtra("accuracy", 0f)
+                val roadGrade = intent.getDoubleExtra("grade", 0.0)
+                val deviceGrade = intent.getDoubleExtra("device_pitch", 0.0)
+                val bearing = intent.getFloatExtra("bearing", 0f)
+                val isValid = intent.getBooleanExtra("is_valid", false)
 
-            // Μέσα στον locationReceiver
-            val distanceInMeters = intent?.getFloatExtra("distance", 0f) ?: 0f
-            this@MainActivity.totalDistance = distanceInMeters
-
-            if (distanceInMeters < 1000) {
-                tvDistance.text = String.format("%.0f m", distanceInMeters)
-            } else {
-                val distanceInKm = distanceInMeters / 1000f
-                tvDistance.text = String.format("%.2f km", distanceInKm)
-            }
-
-            // --- ΔΙΟΡΘΩΣΗ ΜΕΣΗΣ ΤΑΧΥΤΗΤΑΣ ---
-            val timeElapsedHours = (System.currentTimeMillis() - startTime) / 3600000.0
-            if (timeElapsedHours > 0.001) { // Μετά από μερικά δευτερόλεπτα
-                val avgSpeedKmH = (distanceInMeters / 1000.0) / timeElapsedHours
-                tvAvgSpeed.text = String.format("%.1f", avgSpeedKmH)
-            }
-
-            // Ενημέρωση Στιγμιαίας Ταχύτητας (Km/h)
-            tvCurrentSpeed.text = String.format("%.1f", currentSpeed)
-
-            // Accuracy UI
-            tvAccuracy.text = "Accuracy GPS: ${String.format("%.1f", accuracy)}m"
-            tvAccuracy.setTextColor(if (accuracy > 20) Color.RED else Color.parseColor("#006400"))
-
-            // Λογική Zoom & Marker (Όπως τα είχες)
-            if (isTracking && !hasZoomedToTracking) {
-                map.controller.animateTo(newPoint, 18.5, 800L)
-                hasZoomedToTracking = true
-            } else {
-                map.controller.setCenter(newPoint)
-            }
-            updateCurrentLocationMarker(newPoint, bearing)
-
-            // Κλίση Συσκευής (Πάνω στον χάρτη)
-            tvCurrentGrade.visibility = View.VISIBLE
-            tvCurrentGrade.text = "Κλίση σημείου: ${String.format("%.1f", deviceGrade)}%"
-            when {
-                deviceGrade > 1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#D32F2F"))
-                deviceGrade < -1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#388E3C"))
-                else -> tvCurrentGrade.setTextColor(Color.BLACK)
-            }
-
-            // Κλίση Διαδρομής (Κεντρικό UI)
-            tvGrade.text =
-                if (Math.abs(roadGrade) < 0.5) "0.0" else String.format("%.1f", roadGrade)
-// Θερμίδες (Κεντρικό UI - Χρησιμοποιούμε το tvGrade)
-            val calories = intent?.getDoubleExtra("calories", 0.0) ?: 0.0
-            tvGrade.text = String.format("%.0f kcal", calories)
-            tvGrade.setTextColor(Color.WHITE) // Πάντα λευκό, καθαρό κείμενο
-
-            if (startMarker == null) {
-                startMarker = Marker(map).apply {
-                    position = newPoint
-                    icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.green_marker)
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                // ΜΟΝΟ αν το σημείο είναι έγκυρο (δηλ. κινούμαστε) το αποθηκεύουμε και το σχεδιάζουμε
+                if (isValid) {
+                    pathPoints.add(newPoint)
+                    route?.addPoint(newPoint)
+                    borderRoute?.addPoint(newPoint)
                 }
-                map.overlays.add(startMarker)
-            }
 
-            // --- ΠΡΟΣΘΗΚΗ ΓΙΑ ΤΟ KML ---
-            lastDistanceStr = tvDistance.text.toString()
-            lastSpeedStr = tvCurrentSpeed.text.toString() + " km/h"
-            lastSteps = tvSteps.text.toString()
-            lastTimeStr = tvTime.text.toString()
-            var lastCaloriesStr = tvGrade.text.toString() // <-- ΑΥΤΟ ΚΡΑΤΑΕΙ ΤΙΣ ΘΕΡΜΙΔΕΣ ΓΙΑ ΤΟ KML!
-            // -----------------------------------------------
-            map.invalidate()
+                val distanceInMeters = intent.getFloatExtra("distance", 0f)
+                this@MainActivity.totalDistance = distanceInMeters
+
+                if (distanceInMeters < 1000) {
+                    tvDistance.text = String.format("%.0f m", distanceInMeters)
+                } else {
+                    val distanceInKm = distanceInMeters / 1000f
+                    tvDistance.text = String.format("%.2f km", distanceInKm)
+                }
+
+                // --- ΔΙΟΡΘΩΣΗ ΜΕΣΗΣ ΤΑΧΥΤΗΤΑΣ ---
+                val timeElapsedHours = (System.currentTimeMillis() - startTime) / 3600000.0
+                if (timeElapsedHours > 0.001) {
+                    val avgSpeedKmH = (distanceInMeters / 1000.0) / timeElapsedHours
+                    tvAvgSpeed.text = String.format("%.1f", avgSpeedKmH)
+                }
+
+                // Ενημέρωση Στιγμιαίας Ταχύτητας (Km/h)
+                tvCurrentSpeed.text = String.format("%.1f", currentSpeed)
+
+                // Accuracy UI
+                tvAccuracy.text = "Accuracy GPS: ${String.format("%.1f", accuracy)}m"
+                tvAccuracy.setTextColor(if (accuracy > 20) Color.RED else Color.parseColor("#006400"))
+
+                // Λογική Zoom & Marker
+                if (isTracking && !hasZoomedToTracking) {
+                    map.controller.animateTo(newPoint, 18.5, 800L)
+                    hasZoomedToTracking = true
+                } else {
+                    map.controller.setCenter(newPoint)
+                }
+                updateCurrentLocationMarker(newPoint, bearing)
+
+                // Κλίση Συσκευής
+                tvCurrentGrade.visibility = View.VISIBLE
+                tvCurrentGrade.text = "Κλίση σημείου: ${String.format("%.1f", deviceGrade)}%"
+                when {
+                    deviceGrade > 1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#D32F2F"))
+                    deviceGrade < -1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#388E3C"))
+                    else -> tvCurrentGrade.setTextColor(Color.BLACK)
+                }
+
+                // Κλίση Διαδρομής & Θερμίδες
+                tvGrade.text = if (Math.abs(roadGrade) < 0.5) "0.0" else String.format("%.1f", roadGrade)
+                val calories = intent.getDoubleExtra("calories", 0.0)
+                tvGrade.text = String.format("%.0f kcal", calories)
+                tvGrade.setTextColor(Color.WHITE)
+
+                if (startMarker == null) {
+                    startMarker = Marker(map).apply {
+                        position = newPoint
+                        icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.green_marker)
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    }
+                    map.overlays.add(startMarker)
+                }
+
+                lastDistanceStr = tvDistance.text.toString()
+                lastSpeedStr = tvCurrentSpeed.text.toString() + " km/h"
+                lastSteps = tvSteps.text.toString()
+                lastTimeStr = tvTime.text.toString()
+                var lastCaloriesStr = tvGrade.text.toString()
+
+                // --- REAL-TIME TURN-BY-TURN NAVIGATION (ΔΙΟΡΘΩΜΕΝΟ ΜΕ LOGS & ΑΥΞΗΜΕΝΗ ΑΠΟΣΤΑΣΗ) ---
+                if (navigationSteps.isNotEmpty()) {
+                    val nextStep = navigationSteps.firstOrNull { !it.hasBeenAnnounced }
+
+                    if (nextStep != null) {
+                        val results = FloatArray(1)
+                        Location.distanceBetween(
+                            lat, lng,
+                            nextStep.location.latitude, nextStep.location.longitude,
+                            results
+                        )
+                        val distanceToTurn = results[0]
+
+                        // Εκτύπωση στο Logcat για να βλέπουμε την ακριβή απόσταση
+                        Log.d("NAV_DEBUG", "Απόσταση από τη στροφή: ${distanceToTurn.toInt()}m | Οδηγία: ${nextStep.instruction}")
+
+                        // Αυξάνουμε το όριο στα 40 μέτρα για να πιάνει τη στροφή εγκαίρως
+                        if (distanceToTurn <= 40f) {
+                            Log.d("NAV_DEBUG", "🎯 ΕΝΕΡΓΟΠΟΙΗΣΗ ΦΩΝΗΣ: ${nextStep.instruction}")
+                            speak(nextStep.instruction)
+                            nextStep.hasBeenAnnounced = true
+                        }
+                    } else {
+                        Log.d("NAV_DEBUG", "Όλες οι οδηγίες της διαδρομής έχουν ήδη εκφωνηθεί.")
+                    }
+                } else {
+                    Log.d("NAV_DEBUG", "Η λίστα navigationSteps είναι άδεια.")
+                }
+
+                map.invalidate()
+            }
         }
     }
 
@@ -1930,7 +2042,38 @@ $coords
                         }
                         map.zoomToBoundingBox(road.mBoundingBox.increaseByScale(1.3f), true)
                         map.invalidate()
+
+// --- 1. ΚΑΘΑΡΙΣΜΟΣ & ΕΞΑΓΩΓΗ ΟΔΗΓΙΩΝ ΠΛΟΗΓΗΣΗΣ ---
+                        navigationSteps.clear()
+
+                        for (node in road.mNodes) {
+                            if (!node.mInstructions.isNullOrEmpty()) {
+                                // Καθαρισμός τυχόν HTML tags από τις οδηγίες του OSRM
+                                val cleanInstruction = android.text.Html.fromHtml(node.mInstructions, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
+
+                                navigationSteps.add(
+                                    NavigationStep(
+                                        location = node.mLocation,
+                                        instruction = cleanInstruction
+                                    )
+                                )
+                            }
+                        }
+
+                        Log.d("NAV_DEBUG", "Προστέθηκαν ${navigationSteps.size} οδηγίες πλοήγησης.")
+
+                        // --- 2. ΑΡΧΙΚΗ ΕΚΦΩΝΗΣΗ ΜΟΛΙΣ ΣΧΕΔΙΑΣΤΕΙ Η ΔΙΑΔΡΟΜΗ ---
+                        val distanceFormatted = String.format("%.2f", road.mLength)
+                        val initialMessage = "Η διαδρομή υπολογίστηκε. Συνολική απόσταση $distanceFormatted χιλιόμετρα. Εκτιμώμενος χρόνος $timeText. Ξεκινήστε την πορεία σας."
+                        speak(initialMessage)
+
+                    } else {
+                        speak("Αποτυχία υπολογισμού διαδρομής.")
                     }
+
+                    // Εκφώνηση οδηγιών
+                    val speechText = "Η σχεδίαση ολοκληρώθηκε. Η συνολική απόσταση είναι ${String.format("%.2f", road.mLength)} χιλιόμετρα."
+                    speak(speechText)
                 }
             } catch (e: Exception) {
                 Log.e("ROUTING", e.message ?: "")
@@ -2117,3 +2260,9 @@ class CustomKmlInfoWindow(mapView: MapView) : MarkerInfoWindow(R.layout.custom_i
         mView.visibility = View.VISIBLE
     }
 }
+
+data class NavigationStep(
+    val location: GeoPoint,
+    val instruction: String,
+    var hasBeenAnnounced: Boolean = false
+)
