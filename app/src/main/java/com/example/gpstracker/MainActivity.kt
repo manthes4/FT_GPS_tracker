@@ -535,25 +535,33 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun formatGreekInstruction(rawInstruction: String, distanceInMeters: Float, isLastStep: Boolean): String {
-        val clean = rawInstruction.lowercase()
-        val distStr = distanceInMeters.toInt()
+    fun formatGreekInstruction(instruction: String, distanceMeters: Float, isImmediate: Boolean): String {
+        val cleanText = instruction.lowercase()
 
-        val action = when {
-            clean.contains("turn left") || clean.contains("slight left") || clean.contains("sharp left") -> "στρίψτε αριστερά"
-            clean.contains("turn right") || clean.contains("slight right") || clean.contains("sharp right") -> "στρίψτε δεξιά"
-            clean.contains("continue") || clean.contains("straight") -> "συνεχίστε ευθεία"
-            clean.contains("destination") || clean.contains("waypoint") || clean.contains("reached") -> {
-                if (isLastStep) "φτάσατε στον προορισμό σας" else "συνεχίστε στην πορεία σας"
+        // Εντοπισμός κατεύθυνσης
+        val actionText = when {
+            cleanText.contains("left") || cleanText.contains("αριστερά") -> "στρίψτε αριστερά"
+            cleanText.contains("right") || cleanText.contains("δεξιά") -> "στρίψτε δεξιά"
+            cleanText.contains("slight left") -> "κρατήστε ελαφρώς αριστερά"
+            cleanText.contains("slight right") -> "κρατήστε ελαφρώς δεξιά"
+            cleanText.contains("sharp left") -> "στρίψτε απότομα αριστερά"
+            cleanText.contains("sharp right") -> "στρίψτε απότομα δεξιά"
+            cleanText.contains("roundabout") || cleanText.contains("πλατεία") -> "στον κυκλικό κόμβο"
+            cleanText.contains("destination") || cleanText.contains("προορισμό") -> "φτάνετε στον προορισμό σας"
+            else -> "συνεχίστε"
+        }
+
+        // Αν είμαστε στα 10 μέτρα (Immediate), λέμε μόνο την ενέργεια
+        if (isImmediate) {
+            return when {
+                actionText.contains("προορισμό") -> "Φτάσατε στον προορισμό σας."
+                else -> "Τώρα $actionText."
             }
-            else -> "συνεχίστε ευθεία"
         }
 
-        return if (distStr <= 12) {
-            "Τώρα $action"
-        } else {
-            "Σε $distStr μέτρα, $action"
-        }
+        // Προειδοποίηση απόστασης (Advance)
+        val roundedDistance = (Math.round(distanceMeters / 10.0) * 10).toInt()
+        return "Σε $roundedDistance μέτρα, $actionText."
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -853,7 +861,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             outlinePaint.strokeJoin = Paint.Join.ROUND
             outlinePaint.strokeCap = Paint.Cap.ROUND
             outlinePaint.isAntiAlias = true
-            outlinePaint.maskFilter = BlurMaskFilter(10f, BlurMaskFilter.Blur.NORMAL)
+            //outlinePaint.maskFilter = BlurMaskFilter(10f, BlurMaskFilter.Blur.NORMAL)
         }
 
         route = Polyline().apply {
@@ -1008,7 +1016,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val userPoint = GeoPoint(lat, lng)
 
                     // 1. ΕΛΕΓΧΟΣ ΕΚΤΡΟΠΗΣ (Off-Route) & ΑΥΤΟΜΑΤΟΣ ΕΠΑΝΑΥΠΟΛΟΓΙΣΜΟΣ
-                    if (plannedRoutePoints.isNotEmpty() && isUserOffRoute(userPoint, plannedRoutePoints)) {
+                    if (plannedRoutePoints.isNotEmpty() && isUserOffRoute(
+                            userPoint,
+                            plannedRoutePoints
+                        )
+                    ) {
                         if (!isOffRouteAnnounced) {
                             isOffRouteAnnounced = true
                             speak("Είστε εκτός διαδρομής. Επαναϋπολογισμός διαδρομής.")
@@ -1026,8 +1038,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         isOffRouteAnnounced = false // Μηδενισμός όταν επιστρέψει εντός διαδρομής
                     }
 
-                    // 2. ΕΥΡΕΣΗ ΕΠΟΜΕΝΗΣ ΣΤΡΟΦΗΣ
-                    val nextStepIndex = navigationSteps.indexOfFirst { !it.hasBeenAnnounced }
+                    // 2. ΕΥΡΕΣΗ ΕΠΟΜΕΝΗΣ ΣΤΡΟΦΗΣ (Διπλή Ειδοποίηση: Προειδοποίηση & Τελική Στροφή)
+                    val nextStepIndex = navigationSteps.indexOfFirst { !it.hasAnnouncedImmediate }
 
                     if (nextStepIndex != -1) {
                         val nextStep = navigationSteps[nextStepIndex]
@@ -1039,25 +1051,45 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         )
                         val distanceToTurn = results[0]
 
-                        // Δυναμικό κατώφλι απόστασης βάσει ταχύτητας
+                        // Δυναμικό κατώφλι προειδοποίησης βάσει ταχύτητας
                         val speedKmH = currentSpeed * 3.6f
-                        val warningThreshold = when {
+                        val advanceThreshold = when {
                             speedKmH < 7f -> 30f   // Πεζός -> 30 μέτρα
                             speedKmH < 30f -> 50f  // Ποδήλατο -> 50 μέτρα
-                            else -> 100f           // Αυτοκίνητο -> 100 μέτρα
+                            else -> 80f            // Αυτοκίνητο -> 80 μέτρα
                         }
 
-                        // Προειδοποίηση Στροφής
-                        if (distanceToTurn <= warningThreshold) {
-                            val isLastStep = (nextStepIndex == navigationSteps.size - 1)
-                            val greekSpeech = formatGreekInstruction(nextStep.instruction, distanceToTurn, isLastStep)
+                        val immediateThreshold = 12f // Τελική ειδοποίηση στα 10-12 μέτρα
 
-                            speak(greekSpeech)
-                            nextStep.hasBeenAnnounced = true
-                            lastAnnouncedStepIndex = nextStepIndex
-                            lastStraightAnnouncedDistance = 0f // Μηδενισμός για την επόμενη ευθεία
+                        // Α) Πρώτη Προειδοποίηση (π.χ. στα 40-50m)
+                        if (distanceToTurn <= advanceThreshold && distanceToTurn > immediateThreshold) {
+                            if (!nextStep.hasAnnouncedAdvance) {
+                                val greekSpeech = formatGreekInstruction(
+                                    nextStep.instruction,
+                                    distanceToTurn,
+                                    isImmediate = false
+                                )
+                                speak(greekSpeech)
+                                nextStep.hasAnnouncedAdvance = true
+                                lastStraightAnnouncedDistance = 0f
+                            }
                         }
-                        // Ενημέρωση για ΕΥΘΕΙΑ ανά 150 μέτρα
+                        // Β) Τελική Ειδοποίηση (στα 10-12m πριν τη διασταύρωση)
+                        else if (distanceToTurn <= immediateThreshold) {
+                            if (!nextStep.hasAnnouncedImmediate) {
+                                val greekSpeech = formatGreekInstruction(
+                                    nextStep.instruction,
+                                    distanceToTurn,
+                                    isImmediate = true
+                                )
+                                speak(greekSpeech)
+                                nextStep.hasAnnouncedImmediate = true
+                                nextStep.hasAnnouncedAdvance =
+                                    true // Σημαδεύουμε ότι ολοκληρώθηκε πλήρως
+                                lastStraightAnnouncedDistance = 0f
+                            }
+                        }
+                        // Γ) Ενημέρωση για ΕΥΘΕΙΑ (αν η επόμενη στροφή απέχει πάνω από 150m)
                         else if (distanceToTurn > 150f) {
                             if (lastStraightAnnouncedDistance == 0f) {
                                 lastStraightAnnouncedDistance = distanceToTurn
@@ -2158,12 +2190,14 @@ $coords
                             }
                         }
 
-                        // 🎯 ΑΓΝΟΟΥΜΕ ΤΗΝ ΠΡΩΤΗ ΟΔΗΓΙΑ (Start Point / Waypoint)
+// 🎯 ΑΓΝΟΟΥΜΕ ΤΗΝ ΠΡΩΤΗ ΟΔΗΓΙΑ (Start Point / Waypoint)
                         if (navigationSteps.isNotEmpty()) {
                             val firstStep = navigationSteps.first()
                             val cleanFirst = firstStep.instruction.lowercase()
                             if (cleanFirst.contains("waypoint") || cleanFirst.contains("head") || cleanFirst.contains("depart")) {
-                                firstStep.hasBeenAnnounced = true // Τη μαρκάρουμε ως ολοκληρωμένη εξ αρχής
+                                // Σημαδεύουμε και τα δύο flags ως ολοκληρωμένα
+                                firstStep.hasAnnouncedAdvance = true
+                                firstStep.hasAnnouncedImmediate = true
                             }
                         }
 
@@ -2174,7 +2208,8 @@ $coords
                         var initialMessage = "Η διαδρομή υπολογίστηκε. Απόσταση $readableDistance. Εκτιμώμενος χρόνος $timeText."
 
                         // Προσθήκη της 1ης πραγματικής στροφής στην αρχική εκφώνηση
-                        val nextStep = navigationSteps.firstOrNull { !it.hasBeenAnnounced }
+                        // Βρίσκουμε το πρώτο βήμα που δεν έχει ολοκληρωθεί η τελική του ειδοποίηση
+                        val nextStep = navigationSteps.firstOrNull { !it.hasAnnouncedImmediate }
                         if (nextStep != null) {
                             val results = FloatArray(1)
                             Location.distanceBetween(
@@ -2183,8 +2218,9 @@ $coords
                                 results
                             )
                             val distToFirstTurn = results[0]
-                            val isLastStep = (navigationSteps.size == 1)
-                            val firstTurnInstruction = formatGreekInstruction(nextStep.instruction, distToFirstTurn, isLastStep)
+
+                            // Καλούμε τη formatGreekInstruction με isImmediate = false (εκφώνηση με μέτρα)
+                            val firstTurnInstruction = formatGreekInstruction(nextStep.instruction, distToFirstTurn, isImmediate = false)
 
                             initialMessage += " $firstTurnInstruction"
                         }
@@ -2428,5 +2464,6 @@ class CustomKmlInfoWindow(mapView: MapView) : MarkerInfoWindow(R.layout.custom_i
 data class NavigationStep(
     val location: GeoPoint,
     val instruction: String,
-    var hasBeenAnnounced: Boolean = false
+    var hasAnnouncedAdvance: Boolean = false,   // Προειδοποίηση (π.χ. στα 40m)
+    var hasAnnouncedImmediate: Boolean = false  // Τελική ειδοποίηση (στα 10m)
 )
