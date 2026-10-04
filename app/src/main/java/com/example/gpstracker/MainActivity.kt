@@ -804,7 +804,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val sharedPrefs = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         sharedPrefs.edit().remove("route_data").apply()
 
-        // --- ΔΙΟΡΘΩΣΗ: Αφαιρούμε ΜΟΝΟ τα overlays καταγραφής/KML και ΌΧΙ τη σχεδιασμένη διαδρομή ---
         // Κλείνουμε InfoWindows μόνο αν ΔΕΝ ανήκουν στη σχεδιασμένη διαδρομή
         for (overlay in map.overlays.toList()) {
             if (overlay is Marker && overlay != currentSearchMarker && overlay != endMarker) {
@@ -812,11 +811,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
         }
 
-        // Καθαρίζουμε μόνο τα συγκεκριμένα overlays καταγραφής (αποφεύγουμε το γενικό removeAll)
-        kmlRoute?.let { map.overlays.remove(it) }
-        kmlBorderRoute?.let { map.overlays.remove(it) }
-        route?.let { map.overlays.remove(it) }
-        borderRoute?.let { map.overlays.remove(it) }
+        // Καθαρίζουμε μόνο τα συγκεκριμένα overlays καταγραφής/KML
+        kmlRoute?.let { map.overlays.remove(it); kmlRoute = null }
+        kmlBorderRoute?.let { map.overlays.remove(it); kmlBorderRoute = null }
+        route?.let { map.overlays.remove(it); route = null }
+        borderRoute?.let { map.overlays.remove(it); borderRoute = null }
         startMarker?.let { map.overlays.remove(it) }
         kmlGreenMarker?.let { map.overlays.remove(it) }
         kmlPurpleMarker?.let { map.overlays.remove(it) }
@@ -833,8 +832,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         currentSpeed = 0f
         startTime = System.currentTimeMillis()
         pathPoints.clear() // Καθαρισμός μόνο των σημείων της ΝΕΑΣ καταγραφής
-
-        // ⚠️ ΠΡΟΣΟΧΗ: ΔΕΝ καθαρίζουμε τα navigationSteps εδώ!
 
         currentLocationMarker?.let { map.overlays.remove(it) }
         currentLocationMarker = null
@@ -855,15 +852,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         map.invalidate()
 
         // 2. ΔΗΜΙΟΥΡΓΙΑ POLYLINES ΚΑΤΑΓΡΑΦΗΣ (Glow Style)
+        // Μαύρο περίγραμμα
         borderRoute = Polyline().apply {
             outlinePaint.color = Color.parseColor("#030100")
             outlinePaint.strokeWidth = 17.0f
             outlinePaint.strokeJoin = Paint.Join.ROUND
             outlinePaint.strokeCap = Paint.Cap.ROUND
             outlinePaint.isAntiAlias = true
-            //outlinePaint.maskFilter = BlurMaskFilter(10f, BlurMaskFilter.Blur.NORMAL)
         }
 
+        // Κύρια ΚΟΚΚΙΝΗ γραμμή καταγραφής περπατήματος
         route = Polyline().apply {
             outlinePaint.color = Color.parseColor("#E60000")
             outlinePaint.strokeWidth = 9.0f
@@ -872,6 +870,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             outlinePaint.isAntiAlias = true
         }
 
+        // 🎯 Προσθήκη των Overlays καταγραφής στο τέλος της λίστας
+        // ώστε να σχεδιάζονται ΠΑΝΩ από οποιαδήποτε προσχεδιασμένη διαδρομή
         map.overlays.add(borderRoute)
         map.overlays.add(route)
 
@@ -942,7 +942,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 val bearing = intent.getFloatExtra("bearing", 0f)
                 val isValid = intent.getBooleanExtra("is_valid", false)
 
-                // ΜΟΝΟ αν το σημείο είναι έγκυρο το αποθηκεύουμε
+                // ΜΟΝΟ αν το σημείο είναι έγκυρο το αποθηκεύουμε στη ΖΩΝΤΑΝΗ ΚΑΤΑΓΡΑΦΗ
                 if (isValid) {
                     pathPoints.add(newPoint)
                     route?.addPoint(newPoint)
@@ -959,7 +959,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     tvDistance.text = String.format("%.2f km", distanceInKm)
                 }
 
-                // --- ΔΙΟΡΩΣΗ ΜΕΣΗΣ ΤΑΧΥΤΗΤΑΣ ---
+                // --- ΔΙΟΡΘΩΣΗ ΜΕΣΗΣ ΤΑΧΥΤΗΤΑΣ ---
                 val timeElapsedHours = (System.currentTimeMillis() - startTime) / 3600000.0
                 if (timeElapsedHours > 0.001) {
                     val avgSpeedKmH = (distanceInMeters / 1000.0) / timeElapsedHours
@@ -1012,33 +1012,57 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 lastTimeStr = tvTime.text.toString()
 
                 // --- REAL-TIME SMART NAVIGATION ---
-                if (navigationSteps.isNotEmpty()) {
+                if (isTracking && navigationSteps.isNotEmpty()) {
                     val userPoint = GeoPoint(lat, lng)
 
-                    // 1. ΕΛΕΓΧΟΣ ΕΚΤΡΟΠΗΣ (Off-Route) & ΑΥΤΟΜΑΤΟΣ ΕΠΑΝΑΥΠΟΛΟΓΙΣΜΟΣ
-                    if (plannedRoutePoints.isNotEmpty() && isUserOffRoute(
-                            userPoint,
-                            plannedRoutePoints
+                    // 🎯 0. ΕΛΕΓΧΟΣ ΑΦΙΞΗΣ ΣΤΟΝ ΤΕΛΙΚΟ ΠΡΟΟΡΙΣΜΟ (Ακτίνα 12 μέτρων)
+                    val targetDestination = endPoint ?: endMarker?.position
+                    if (targetDestination != null) {
+                        val distToDestinationResults = FloatArray(1)
+                        Location.distanceBetween(
+                            lat, lng,
+                            targetDestination.latitude, targetDestination.longitude,
+                            distToDestinationResults
                         )
-                    ) {
+                        val distanceToDestination = distToDestinationResults[0]
+
+                        if (distanceToDestination <= 12f) {
+                            speak("Φτάσατε στον προορισμό σας.")
+
+                            // 🎯 ΚΑΘΑΡΙΖΟΥΜΕ ΜΟΝΟ ΤΗ ΣΧΕΔΙΑΣΜΕΝΗ ΔΙΑΔΡΟΜΗ ΠΛΟΗΓΗΣΗΣ
+                            // Τα overlays καταγραφής (route, borderRoute) ΠΑΡΑΜΕΝΟΥΝ ανέπαφα!
+                            roadBorderOverlay?.let {
+                                map.overlays.remove(it)
+                                roadBorderOverlay = null
+                            }
+                            roadOverlay?.let {
+                                map.overlays.remove(it)
+                                roadOverlay = null
+                            }
+                            plannedRoutePoints.clear()
+                            navigationSteps.clear()
+
+                            map.invalidate()
+                            return // Τερματισμός ελέγχου πλοήγησης (η καταγραφή συνεχίζεται κανονικά)
+                        }
+                    }
+
+                    // 1. ΕΛΕΓΧΟΣ ΕΚΤΡΟΠΗΣ (Off-Route) & ΑΥΤΟΜΑΤΟΣ ΕΠΑΝΑΥΠΟΛΟΓΙΣΜΟΣ
+                    if (plannedRoutePoints.isNotEmpty() && isUserOffRoute(userPoint, plannedRoutePoints)) {
                         if (!isOffRouteAnnounced) {
                             isOffRouteAnnounced = true
                             speak("Είστε εκτός διαδρομής. Επαναϋπολογισμός διαδρομής.")
 
-                            // 🎯 ΕΠΑΝΑΥΠΟΛΟΓΙΣΜΟΣ: Από τη νέα θέση του χρήστη προς τον προορισμό
-                            // 🎯 ΕΠΑΝΑΥΠΟΛΟΓΙΣΜΟΣ: Παίρνουμε τον προορισμό από το endPoint ή το endMarker
-                            val targetDestination = endPoint ?: endMarker?.position
-
                             targetDestination?.let { destination ->
-                                calculateRoute(userPoint, destination)
+                                calculateRoute(userPoint, destination, isRecalculation = true)
                             }
                         }
-                        return // Σταματάμε την επεξεργασία των παλιών οδηγιών μέχρι να ετοιμαστεί η νέα διαδρομή
+                        return
                     } else {
-                        isOffRouteAnnounced = false // Μηδενισμός όταν επιστρέψει εντός διαδρομής
+                        isOffRouteAnnounced = false
                     }
 
-                    // 2. ΕΥΡΕΣΗ ΕΠΟΜΕΝΗΣ ΣΤΡΟΦΗΣ (Διπλή Ειδοποίηση: Προειδοποίηση & Τελική Στροφή)
+                    // 2. ΕΥΡΕΣΗ ΕΠΟΜΕΝΗΣ ΣΤΡΟΦΗΣ / ΟΔΗΓΙΑΣ
                     val nextStepIndex = navigationSteps.indexOfFirst { !it.hasAnnouncedImmediate }
 
                     if (nextStepIndex != -1) {
@@ -1051,45 +1075,34 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         )
                         val distanceToTurn = results[0]
 
-                        // Δυναμικό κατώφλι προειδοποίησης βάσει ταχύτητας
                         val speedKmH = currentSpeed * 3.6f
                         val advanceThreshold = when {
                             speedKmH < 7f -> 30f   // Πεζός -> 30 μέτρα
                             speedKmH < 30f -> 50f  // Ποδήλατο -> 50 μέτρα
                             else -> 80f            // Αυτοκίνητο -> 80 μέτρα
                         }
+                        val immediateThreshold = 12f // Τελική ειδοποίηση στροφής
 
-                        val immediateThreshold = 12f // Τελική ειδοποίηση στα 10-12 μέτρα
-
-                        // Α) Πρώτη Προειδοποίηση (π.χ. στα 40-50m)
+                        // Α) Πρώτη Προειδοποίηση (στα 30m)
                         if (distanceToTurn <= advanceThreshold && distanceToTurn > immediateThreshold) {
                             if (!nextStep.hasAnnouncedAdvance) {
-                                val greekSpeech = formatGreekInstruction(
-                                    nextStep.instruction,
-                                    distanceToTurn,
-                                    isImmediate = false
-                                )
+                                val greekSpeech = formatGreekInstruction(nextStep.instruction, distanceToTurn, isImmediate = false)
                                 speak(greekSpeech)
                                 nextStep.hasAnnouncedAdvance = true
                                 lastStraightAnnouncedDistance = 0f
                             }
                         }
-                        // Β) Τελική Ειδοποίηση (στα 10-12m πριν τη διασταύρωση)
+                        // Β) Τελική Ειδοποίηση (στα 12m)
                         else if (distanceToTurn <= immediateThreshold) {
                             if (!nextStep.hasAnnouncedImmediate) {
-                                val greekSpeech = formatGreekInstruction(
-                                    nextStep.instruction,
-                                    distanceToTurn,
-                                    isImmediate = true
-                                )
+                                val greekSpeech = formatGreekInstruction(nextStep.instruction, distanceToTurn, isImmediate = true)
                                 speak(greekSpeech)
                                 nextStep.hasAnnouncedImmediate = true
-                                nextStep.hasAnnouncedAdvance =
-                                    true // Σημαδεύουμε ότι ολοκληρώθηκε πλήρως
+                                nextStep.hasAnnouncedAdvance = true
                                 lastStraightAnnouncedDistance = 0f
                             }
                         }
-                        // Γ) Ενημέρωση για ΕΥΘΕΙΑ (αν η επόμενη στροφή απέχει πάνω από 150m)
+                        // Γ) Ενημέρωση για ΕΥΘΕΙΑ (αν απέχει πάνω από 150m)
                         else if (distanceToTurn > 150f) {
                             if (lastStraightAnnouncedDistance == 0f) {
                                 lastStraightAnnouncedDistance = distanceToTurn
@@ -1098,8 +1111,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                                 lastStraightAnnouncedDistance = distanceToTurn
                             }
                         }
-                    } else {
-                        Log.d("NAV_DEBUG", "Όλες οι οδηγίες ολοκληρώθηκαν.")
                     }
                 }
 
@@ -1246,11 +1257,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         stepCounterManager.stop()
 
         // --- ΒΗΜΑ 2: ΑΛΛΑΓΗ ΓΙΑ ΤΙΣ ΘΕΡΜΙΔΕΣ ---
-        // Αντί για την παλιά κλίση, παίρνουμε το κείμενο των θερμίδων από την οθόνη (π.χ. "120 kcal")
         val finalCalories = tvGrade.text.toString()
 
-        // Περνάμε τις θερμίδες στη saveStats (αντικαθιστώντας την κλίση αν την έστελνες εκεί,
-        // ή απλά σιγουρεύσου ότι η saveStats σου δέχεται αυτό το string για το KML)
         saveStats(formattedTime, formattedDistance, formattedAvgSpeed, finalSteps.toString(), finalCalories)
         // ----------------------------------------
 
@@ -1266,6 +1274,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         // 4. Καθαρισμός λίστας για την επόμενη διαδρομή
         pathPoints.clear()
+
+        // --- 🎯 ΚΑΘΑΡΙΣΜΟΣ ΣΧΕΔΙΑΣΜΕΝΗΣ ΔΙΑΔΡΟΜΗΣ & ΠΕΡΙΓΡΑΜΜΑΤΟΣ ---
+        roadBorderOverlay?.let {
+            map.overlays.remove(it)
+            roadBorderOverlay = null
+        }
+        roadOverlay?.let {
+            map.overlays.remove(it)
+            roadOverlay = null
+        }
+        plannedRoutePoints.clear()
+        navigationSteps.clear()
+        lastStraightAnnouncedDistance = 0f
+        isOffRouteAnnounced = false
+        lastAnnouncedStepIndex = -1
+        // -------------------------------------------------------------
 
         // --- ΒΗΜΑ 5: ΠΡΟΣΘΗΚΗ ΓΙΑ ΤΗΝ ΕΠΑΝΑΦΟΡΑ ΤΟΥ ΚΟΥΜΠΙΟΥ START GPS ---
         val startIcon = startButton.findViewById<android.widget.ImageView>(R.id.button_start_icon)
@@ -2112,7 +2136,7 @@ $coords
             .show()
     }
 
-    private fun calculateRoute(startPoint: GeoPoint, endPoint: GeoPoint) {
+    private fun calculateRoute(startPoint: GeoPoint, endPoint: GeoPoint, isRecalculation: Boolean = false) {
         Thread {
             try {
                 val roadManager = OSRMRoadManager(this, packageName)
@@ -2147,17 +2171,23 @@ $coords
                             }
                         }
 
-                        // --- 3. ΠΡΟΣΘΗΚΗ ΣΤΟΝ ΧΑΡΤΗ ---
-                        map.overlays.add(1, roadBorderOverlay)
-                        map.overlays.add(2, roadOverlay)
+                        // --- 3. ΠΡΟΣΘΗΚΗ ΣΤΟΝ ΧΑΡΤΗ (ΑΣΦΑΛΗΣ ΣΕΙΡΑ) ---
+                        // Πρώτα το μαύρο περίγραμμα και ΑΜΕΣΩΣ μετά το γαλάζιο από πάνω του
+                        map.overlays.add(roadBorderOverlay)
+                        map.overlays.add(roadOverlay)
 
                         // 🎯 ΑΠΟΘΗΚΕΥΣΗ ΣΗΜΕΙΩΝ ΓΙΑ ΤΟΝ ΕΛΕΓΧΟ ΕΚΤΡΟΠΗΣ (OFF-ROUTE)
-                        plannedRoutePoints = road.mRouteHigh // ✨ Διορθώθηκε από mRouteHighPruning σε mRouteHigh
+                        plannedRoutePoints = road.mRouteHigh
 
-                        // Σύντομο info χωρίς toast
-                        val walkingMinutes = (road.mLength / 5.0) * 60.0
-                        val timeText =
-                            if (walkingMinutes >= 60) "${(walkingMinutes / 60).toInt()}ω ${(walkingMinutes % 60).toInt()}λ" else "${walkingMinutes.toInt()}λ"
+                        // --- ΥΠΟΛΟΓΙΣΜΟΣ ΧΡΟΝΟΥ ΜΕ ΤΑΧΥΤΗΤΑ 4 km/h ---
+                        val walkingMinutes = (road.mLength / 4.0) * 60.0
+                        val totalMinutes = Math.round(walkingMinutes).toInt()
+                        val timeText = if (totalMinutes >= 60) {
+                            "${totalMinutes / 60}ω ${totalMinutes % 60}λ"
+                        } else {
+                            "$totalMinutes λεπτά"
+                        }
+
                         val info = "🚶 $timeText | ${String.format("%.2f", road.mLength)} km"
 
                         val activeMarker = currentSearchMarker ?: endMarker
@@ -2190,12 +2220,11 @@ $coords
                             }
                         }
 
-// 🎯 ΑΓΝΟΟΥΜΕ ΤΗΝ ΠΡΩΤΗ ΟΔΗΓΙΑ (Start Point / Waypoint)
+                        // 🎯 ΑΓΝΟΟΥΜΕ ΤΗΝ ΠΡΩΤΗ ΟΔΗΓΙΑ (Start Point / Waypoint)
                         if (navigationSteps.isNotEmpty()) {
                             val firstStep = navigationSteps.first()
                             val cleanFirst = firstStep.instruction.lowercase()
                             if (cleanFirst.contains("waypoint") || cleanFirst.contains("head") || cleanFirst.contains("depart")) {
-                                // Σημαδεύουμε και τα δύο flags ως ολοκληρωμένα
                                 firstStep.hasAnnouncedAdvance = true
                                 firstStep.hasAnnouncedImmediate = true
                             }
@@ -2203,29 +2232,12 @@ $coords
 
                         Log.d("NAV_DEBUG", "Προστέθηκαν ${navigationSteps.size} οδηγίες πλοήγησης.")
 
-                        // --- 5. ΑΡΧΙΚΗ ΕΚΦΩΝΗΣΗ ΜΟΛΙΣ ΣΧΕΔΙΑΣΤΕΙ Η ΔΙΑΔΡΟΜΗ ---
-                        val readableDistance = formatDistanceForSpeech(road.mLength)
-                        var initialMessage = "Η διαδρομή υπολογίστηκε. Απόσταση $readableDistance. Εκτιμώμενος χρόνος $timeText."
-
-                        // Προσθήκη της 1ης πραγματικής στροφής στην αρχική εκφώνηση
-                        // Βρίσκουμε το πρώτο βήμα που δεν έχει ολοκληρωθεί η τελική του ειδοποίηση
-                        val nextStep = navigationSteps.firstOrNull { !it.hasAnnouncedImmediate }
-                        if (nextStep != null) {
-                            val results = FloatArray(1)
-                            Location.distanceBetween(
-                                startPoint.latitude, startPoint.longitude,
-                                nextStep.location.latitude, nextStep.location.longitude,
-                                results
-                            )
-                            val distToFirstTurn = results[0]
-
-                            // Καλούμε τη formatGreekInstruction με isImmediate = false (εκφώνηση με μέτρα)
-                            val firstTurnInstruction = formatGreekInstruction(nextStep.instruction, distToFirstTurn, isImmediate = false)
-
-                            initialMessage += " $firstTurnInstruction"
+                        // --- 5. ΑΡΧΙΚΗ ΕΚΦΩΝΗΣΗ ---
+                        if (!isRecalculation) {
+                            val readableDistance = formatDistanceForSpeech(road.mLength)
+                            val initialMessage = "Η διαδρομή υπολογίστηκε. Απόσταση $readableDistance. Εκτιμώμενος χρόνος $timeText."
+                            speak(initialMessage)
                         }
-
-                        speak(initialMessage)
 
                     } else {
                         speak("Αποτυχία υπολογισμού διαδρομής.")
