@@ -2171,9 +2171,13 @@ $coords
                             }
                         }
 
-                        // --- 3. ΠΡΟΣΘΗΚΗ ΣΤΟΝ ΧΑΡΤΗ ---
-                        map.overlays.add(roadBorderOverlay)
-                        map.overlays.add(roadOverlay)
+                        // --- 3. ΠΡΟΣΘΗΚΗ ΣΤΟΝ ΧΑΡΤΗ ΣΕ ΣΤΑΘΕΡΗ ΒΑΣΗ (Index 0 & 1) ---
+                        // Τοποθετούνται πάντα στον πάτο των overlays για να μην καλύπτουν τίποτα άλλο
+                        val safeBorderIndex = if (map.overlays.size > 0) 0 else 0
+                        map.overlays.add(safeBorderIndex, roadBorderOverlay)
+
+                        val safeCoreIndex = if (map.overlays.size > 1) 1 else map.overlays.size
+                        map.overlays.add(safeCoreIndex, roadOverlay)
 
                         // 🎯 ΑΠΟΘΗΚΕΥΣΗ ΣΗΜΕΙΩΝ ΓΙΑ ΤΟΝ ΕΛΕΓΧΟ ΕΚΤΡΟΠΗΣ (OFF-ROUTE)
                         plannedRoutePoints = road.mRouteHigh
@@ -2195,9 +2199,6 @@ $coords
                             it.showInfoWindow()
                         }
 
-                        // 🎯 ΕΛΕΓΧΟΣ ZOOM: Κάνουμε zoom ΜΟΝΟ στην αρχική σχεδίαση.
-                        // Στον επαναϋπολογισμό (isRecalculation == true) παραλείπουμε το zoom
-                        // για να μην αλλαζοκλείνει η οθόνη την ώρα που περπατάς!
                         if (!isRecalculation) {
                             map.zoomToBoundingBox(road.mBoundingBox.increaseByScale(1.3f), true)
                         }
@@ -2226,7 +2227,6 @@ $coords
                             }
                         }
 
-                        // 🎯 ΑΓΝΟΟΥΜΕ ΤΗΝ ΠΡΩΤΗ ΟΔΗΓΙΑ (Start Point / Waypoint)
                         if (navigationSteps.isNotEmpty()) {
                             val firstStep = navigationSteps.first()
                             val cleanFirst = firstStep.instruction.lowercase()
