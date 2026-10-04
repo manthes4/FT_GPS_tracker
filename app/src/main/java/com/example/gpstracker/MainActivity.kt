@@ -2171,8 +2171,7 @@ $coords
                             }
                         }
 
-                        // --- 3. ΠΡΟΣΘΗΚΗ ΣΤΟΝ ΧΑΡΤΗ (ΑΣΦΑΛΗΣ ΣΕΙΡΑ) ---
-                        // Πρώτα το μαύρο περίγραμμα και ΑΜΕΣΩΣ μετά το γαλάζιο από πάνω του
+                        // --- 3. ΠΡΟΣΘΗΚΗ ΣΤΟΝ ΧΑΡΤΗ ---
                         map.overlays.add(roadBorderOverlay)
                         map.overlays.add(roadOverlay)
 
@@ -2195,7 +2194,14 @@ $coords
                             it.snippet = info
                             it.showInfoWindow()
                         }
-                        map.zoomToBoundingBox(road.mBoundingBox.increaseByScale(1.3f), true)
+
+                        // 🎯 ΕΛΕΓΧΟΣ ZOOM: Κάνουμε zoom ΜΟΝΟ στην αρχική σχεδίαση.
+                        // Στον επαναϋπολογισμό (isRecalculation == true) παραλείπουμε το zoom
+                        // για να μην αλλαζοκλείνει η οθόνη την ώρα που περπατάς!
+                        if (!isRecalculation) {
+                            map.zoomToBoundingBox(road.mBoundingBox.increaseByScale(1.3f), true)
+                        }
+
                         map.invalidate()
 
                         // --- 4. ΚΑΘΑΡΙΣΜΟΣ & ΜΗΔΕΝΙΣΜΟΣ ΜΕΤΑΒΛΗΤΩΝ ΠΛΟΗΓΗΣΗΣ ---
