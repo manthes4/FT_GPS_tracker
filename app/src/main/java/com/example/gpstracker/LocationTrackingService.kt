@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.Sensor
+import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
@@ -16,11 +17,11 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.overlay.Polyline
-import android.hardware.SensorEvent
 
 class LocationTrackingService : Service(), SensorEventListener {
 
@@ -29,44 +30,45 @@ class LocationTrackingService : Service(), SensorEventListener {
         val masterPathPoints = mutableListOf<org.osmdroid.util.GeoPoint>()
         var serviceTotalDistance = 0f
         var serviceTotalSteps = 0
-        var serviceTotalCalories = 0.0 // <-- ΠΡΟΣΘΗΚΗ
-        var isServicePaused = false    // <-- ΠΡΟΣΘΗΚΗ ΓΙΑ ΤΗΝ ΠΑΥΣΗ
+        var serviceTotalCalories = 0.0
+        var isServicePaused = false
     }
 
     private lateinit var locationManager: LocationManager
     private var previousLocation: Location? = null
     private var totalDistance: Float = 0f
-    private lateinit var sensorManager: SensorManager // ΠΡΟΣΘΗΚΗ
+    private lateinit var sensorManager: SensorManager
 
     private var gravityGrade: Double = 0.0 // Η κλίση από το επιταχυνσιόμετρο
-
     private var currentGrade: Double = 0.0
     private val altitudeBuffer = mutableListOf<Triple<Float, Double, Location>>()
 
-    private var currentSteps: Int = 0 // Η μεταβλητή που έλειπε
+    private var currentSteps: Int = 0
     private var lastStepsForFilter: Int = 0
     private var lastFilterTime: Long = System.currentTimeMillis()
-    private var lastStepTime: Long = 0 // Για το παράθυρο των 60 δευτερολέπτων
+    private var lastStepTime: Long = 0
 
-    private var startTime: Long = 0L // Η προσθήκη που λείπει
+    private var startTime: Long = 0L
     private val statsHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private lateinit var statsRunnable: Runnable
     private var currentSpeedKmH: Float = 0f
-    private var initialSteps: Int = -1 // Η τιμή του αισθητήρα κατά την εκκίνηση
+    private var initialSteps: Int = -1
 
     private var smoothedLat = 0.0
     private var smoothedLng = 0.0
     private var hasSmoothedPoint = false
 
-    private var previousSmoothedLocation: Location? = null // Νέα μεταβλητή στα μέλη της κλάσης
-
+    private var previousSmoothedLocation: Location? = null
     private var wakeLock: android.os.PowerManager.WakeLock? = null
 
     override fun onCreate() {
         super.onCreate()
 
         val powerManager = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-        wakeLock = powerManager.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "GPSTracker::WakeLock")
+        wakeLock = powerManager.newWakeLock(
+            android.os.PowerManager.PARTIAL_WAKE_LOCK,
+            "GPSTracker::WakeLock"
+        )
         wakeLock?.acquire()
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -74,40 +76,140 @@ class LocationTrackingService : Service(), SensorEventListener {
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val stepSensor = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
         stepSensor?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) // Μειωμένη συχνότητα
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
 
         val accelSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         accelSensor?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL) // Μειωμένη συχνότητα
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_NORMAL)
         }
 
-        // Μηδενισμός lastStepTime στην αρχή
         lastStepTime = 0L
 
+// --- RUNNABLE: Εκτελείται σταθερά κάθε 1 δευτερόλεπτο ---
         statsRunnable = object : Runnable {
+
+            // Το βάρος διαβάζεται μόνο μία φορά
+            private var cachedWeight: Float? = null
+
             override fun run() {
-                if (startTime != 0L) {
-                    val elapsedTimeSeconds = (System.currentTimeMillis() - startTime) / 1000
-                    updateNotification(totalDistance, elapsedTimeSeconds)
+
+                if (startTime != 0L && !isServicePaused) {
+
+                    val elapsedTimeSeconds =
+                        (System.currentTimeMillis() - startTime) / 1000
+
+                    // 1. Διαβάζουμε το βάρος μόνο την πρώτη φορά
+                    if (cachedWeight == null) {
+
+                        val sharedPrefs =
+                            getSharedPreferences(
+                                "gps_stats",
+                                Context.MODE_PRIVATE
+                            )
+
+                        cachedWeight =
+                            sharedPrefs.getFloat(
+                                "user_weight",
+                                115.0f
+                            )
+                    }
+
+                    val weight = cachedWeight!!
+
+                    // 2. Τρέχουσα ταχύτητα
+                    val speed = currentSpeedKmH.coerceAtLeast(0.0f)
+
+                    // 3. Υπολογισμός MET
+                    //
+                    // Για περπάτημα χρησιμοποιούμε τη σχέση
+                    // ACSM για οριζόντιο περπάτημα.
+                    //
+                    // Για τρέξιμο χρησιμοποιούμε τη σχέση
+                    // ACSM για οριζόντιο τρέξιμο.
+                    //
+                    // Το αποτέλεσμα είναι συνεχές και όχι
+                    // απότομα διαφορετικό όταν αλλάζει λίγο
+                    // η ταχύτητα.
+
+                    val met = when {
+
+                        // Στάση / σχεδόν ακίνητος
+                        speed < 1.0f -> {
+                            1.3f
+                        }
+
+                        // Περπάτημα
+                        speed < 8.0f -> {
+
+                            val speedMetersPerMinute =
+                                speed * 1000.0f / 60.0f
+
+                            // VO2 = 0.1 × ταχύτητα + 3.5
+                            val vo2 =
+                                (0.1f * speedMetersPerMinute) + 3.5f
+
+                            // Μετατροπή VO2 σε MET
+                            vo2 / 3.5f
+                        }
+
+                        // Τρέξιμο
+                        else -> {
+
+                            val speedMetersPerMinute =
+                                speed * 1000.0f / 60.0f
+
+                            // ACSM running equation:
+                            //
+                            // VO2 = 0.2 × speed + 0.9 × speed × grade + 3.5
+                            //
+                            // grade = 0 (επίπεδη διαδρομή)
+                            //
+                            // Άρα:
+                            // VO2 = 0.2 × speed + 3.5
+
+                            val vo2 =
+                                (0.2f * speedMetersPerMinute) + 3.5f
+
+                            // Μετατροπή VO2 σε MET
+                            vo2 / 3.5f
+                        }
+                    }
+
+                    // 4. Συνολικές (GROSS) θερμίδες
+                    //
+                    // kcal/min =
+                    // MET × 3.5 × βάρος / 200
+                    //
+                    // Το MET περιλαμβάνει ήδη την ενέργεια ηρεμίας.
+                    // Επομένως ΔΕΝ προσθέτουμε ξεχωριστά BMR θερμίδες.
+
+                    val caloriesPerSecond =
+                        ((met * 3.5f * weight) / 200.0f) / 60.0f
+
+                    serviceTotalCalories += caloriesPerSecond
+
+                    // 5. Ενημέρωση Notification
+                    updateNotification(
+                        totalDistance,
+                        elapsedTimeSeconds
+                    )
                 }
-                statsHandler.postDelayed(this, 1000) // Επανάληψη κάθε 1 δευτερόλεπτο
+
+                statsHandler.postDelayed(this, 1000)
             }
         }
     }
 
-    // ΠΡΟΣΘΗΚΗ: Υλοποίηση της μεθόδου onSensorChanged
     override fun onSensorChanged(event: SensorEvent?) {
         if (isServicePaused) return
         if (event?.sensor?.type == Sensor.TYPE_STEP_COUNTER) {
             val totalStepsSinceBoot = event.values[0].toInt()
 
-            // Αν είναι η πρώτη φορά που παίρνουμε τιμή μετά το "Start"
             if (initialSteps == -1) {
                 initialSteps = totalStepsSinceBoot
             }
 
-            // Υπολογίζουμε τη διαφορά: Τωρινά βήματα - Βήματα που είχαμε στο ξεκίνημα
             currentSteps = totalStepsSinceBoot - initialSteps
             lastStepTime = System.currentTimeMillis()
         }
@@ -124,24 +226,23 @@ class LocationTrackingService : Service(), SensorEventListener {
         }
     }
 
-    // ΠΡΟΣΘΗΚΗ: Υλοποίηση της μεθόδου onAccuracyChanged (απαιτείται από το interface)
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Μηδενισμός δεδομένων κάθε φορά που ξεκινάει η υπηρεσία
+        // Μηδενισμός δεδομένων για τη νέα διαδρομή
         totalDistance = 0f
         currentGrade = 0.0
         altitudeBuffer.clear()
         previousLocation = null
         lastStepTime = 0L
-        currentSteps = 0     // Μηδενισμός εμφάνισης
-        initialSteps = -1 // Επαναφορά για τη νέα διαδρομή
+        currentSteps = 0
+        initialSteps = -1
+        serviceTotalCalories = 0.0 // <-- Μηδενισμός θερμίδων στην έναρξη
 
-        // ΚΑΤΑΓΡΑΦΗ ΤΗΣ ΩΡΑΣ ΕΝΑΡΞΗΣ
         startTime = System.currentTimeMillis()
         statsHandler.post(statsRunnable)
 
-        startForegroundService() // Εκκίνηση του Notification
+        startForegroundService()
 
         if (ActivityCompat.checkSelfPermission(
                 this, android.Manifest.permission.ACCESS_FINE_LOCATION
@@ -149,8 +250,8 @@ class LocationTrackingService : Service(), SensorEventListener {
         ) {
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
-                1000L, // 1 δευτερόλεπτο
-                0.5f,  // 0.5 μέτρο αντί για 1.0
+                1000L,
+                0.5f,
                 locationListener
             )
         }
@@ -161,7 +262,6 @@ class LocationTrackingService : Service(), SensorEventListener {
     private fun updateNotification(distanceMeters: Float, timeSeconds: Long) {
         val channelId = "GPS_Tracking_Service_Channel"
 
-        // Μορφοποίηση δεδομένων
         val h = timeSeconds / 3600
         val m = (timeSeconds % 3600) / 60
         val s = timeSeconds % 60
@@ -169,16 +269,12 @@ class LocationTrackingService : Service(), SensorEventListener {
         val distStr = String.format("%.2f km", distanceMeters / 1000f)
         val speedStr = String.format("%.1f km/h", currentSpeedKmH)
 
-        // Η πρώτη σειρά (Κύρια στατιστικά)
         val line1 = "📍 $distStr  |  ⏱️ $timeStr"
-        // Η δεύτερη σειρά (Επιπλέον στατιστικά)
         val line2 = "⚡ $speedStr  |  👣 $currentSteps steps"
 
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Καταγραφή Διαδρομής")
-            // Το ContentText φαίνεται όταν η ειδοποίηση είναι κλειστή
             .setContentText("$line1  |  $line2")
-            // Το BigTextStyle επιτρέπει τις δύο σειρές όταν την κατεβάζεις
             .setStyle(NotificationCompat.BigTextStyle().bigText("$line1\n$line2"))
             .setSmallIcon(R.drawable.ic_location)
             .setOngoing(true)
@@ -194,7 +290,6 @@ class LocationTrackingService : Service(), SensorEventListener {
         val channelId = "GPS_Tracking_Service_Channel"
         val channelName = "GPS Tracking Service"
 
-        // 1. Δημιουργία του Channel (για Android 8+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
@@ -205,7 +300,6 @@ class LocationTrackingService : Service(), SensorEventListener {
             notificationManager?.createNotificationChannel(channel)
         }
 
-        // 2. Χτίσιμο του αρχικού Notification
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Καταγραφή Διαδρομής")
             .setContentText("📍 0.00 km  |  ⏱️ 00:00:00")
@@ -214,7 +308,6 @@ class LocationTrackingService : Service(), SensorEventListener {
             .setOngoing(true)
             .build()
 
-        // 3. Εκκίνηση της υπηρεσίας στο προσκήνιο (Foreground)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(1, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } else {
@@ -223,24 +316,20 @@ class LocationTrackingService : Service(), SensorEventListener {
     }
 
     private val locationListener = LocationListener { location ->
-        if (isServicePaused) return@LocationListener // Αν είμαστε σε παύση, αγνόησε το σημείο!
-        // --- 0. ΟΡΙΣΜΟΣ ΧΡΟΝΟΥ ---
-        val currentTime = System.currentTimeMillis() // Αυτό έλειπε!
-        // --- 1. ΑΥΣΤΗΡΟΤΕΡΟ ΦΙΛΤΡΟ ΑΚΡΙΒΕΙΑΣ ---
-        // Αν η ακρίβεια είναι πάνω από 30-35μ, το σημείο θα προκαλέσει μεγάλο άλμα στην απόσταση
+        if (isServicePaused) return@LocationListener
+        val currentTime = System.currentTimeMillis()
+
         if (location.accuracy > 35f) return@LocationListener
 
         var isPointValid = false
         currentSpeedKmH = location.speed * 3.6f
 
-        // --- 2. GPS SMOOTHING (Εφαρμογή στο ρεύμα των σημείων) ---
+        // --- GPS SMOOTHING ---
         if (!hasSmoothedPoint) {
             smoothedLat = location.latitude
             smoothedLng = location.longitude
             hasSmoothedPoint = true
         } else {
-            // Αυξάνουμε λίγο το βάρος του προηγούμενου σημείου (0.8 αντί για 0.7)
-            // για ακόμα πιο σταθερή γραμμή
             smoothedLat = smoothedLat * 0.8 + location.latitude * 0.2
             smoothedLng = smoothedLng * 0.8 + location.longitude * 0.2
         }
@@ -250,34 +339,25 @@ class LocationTrackingService : Service(), SensorEventListener {
             longitude = smoothedLng
         }
 
-        // --- 3. ΥΠΟΛΟΓΙΣΜΟΣ ΑΠΟΣΤΑΣΗΣ (Μόνο μεταξύ Smoothed σημείων) ---
+        // --- ΥΠΟΛΟΓΙΣΜΟΣ ΑΠΟΣΤΑΣΗΣ ---
         if (previousSmoothedLocation != null) {
-            // Υπολογίζουμε την απόσταση από το προηγούμενο ΚΑΛΟ σημείο
             val gpsDistance = previousSmoothedLocation!!.distanceTo(smoothedLocation)
 
-            // Φίλτρο Teleport (μειωμένο στα 50μ, 80μ είναι πάρα πολλά για 1 δευτερόλεπτο)
             if (gpsDistance > 50f) return@LocationListener
 
-            // Δυναμικό minMove: Αν η ακρίβεια είναι κακή, θέλουμε μεγαλύτερη κίνηση για να καταγράψουμε
-            // Αν η ακρίβεια είναι καλή (π.χ. 3μ), το minMove θα είναι 3.0μ.
-            val minMove = maxOf(1.5f, location.accuracy * 0.3f) // Πιο χαλαρό από το 3.0f
-
-            // Ανίχνευση ακινησίας (πιο αυστηρή)
+            val minMove = maxOf(1.5f, location.accuracy * 0.3f)
             val isProbablyStationary = currentSpeedKmH < 0.4f && gpsDistance < 1.5f
 
             if (gpsDistance >= minMove && !isProbablyStationary) {
                 totalDistance += gpsDistance
                 isPointValid = true
-                // Ενημερώνουμε το προηγούμενο σημείο ΜΟΝΟ αν η κίνηση ήταν έγκυρη
                 previousSmoothedLocation = smoothedLocation
             }
         } else {
-            // Πρώτο σημείο της διαδρομής
             previousSmoothedLocation = smoothedLocation
         }
 
-        // --- 4. ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ ---
-
+        // --- ΥΠΟΛΟΓΙΣΜΟΣ ΚΛΙΣΗΣ ---
         altitudeBuffer.add(Triple(totalDistance, location.altitude, location))
 
         while (altitudeBuffer.isNotEmpty() && (totalDistance - altitudeBuffer.first().first) > 65f) {
@@ -294,15 +374,12 @@ class LocationTrackingService : Service(), SensorEventListener {
             }
 
         if (backPoint != null && isAccurate) {
-
             val horizontalDist = backPoint.third.distanceTo(location)
 
             if (horizontalDist > 15f) {
-
                 val altDiff = location.altitude - backPoint.second
 
                 if (Math.abs(altDiff) > 1.2) {
-
                     val calculatedGrade = (altDiff / horizontalDist) * 100
                     currentGrade = (currentGrade * 0.7) + (calculatedGrade * 0.3)
                 }
@@ -313,47 +390,22 @@ class LocationTrackingService : Service(), SensorEventListener {
             }
         }
 
-        // --- 5. ΣΩΣΤΟ BEARING (όχι τρεμόπαιγμα όταν είσαι ακίνητος) ---
-        val safeBearing =
-            if (location.speed > 0.5f) location.bearing else -1f
-
-        // --- ΥΠΟΛΟΓΙΣΜΟΣ ΘΕΡΜΙΔΩΝ ---
-        val sharedPrefs = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
-        val userWeight = sharedPrefs.getFloat("user_weight", 75.0f) // 75kg ως προεπιλογή
-
-        val met = when {
-            currentSpeedKmH < 1.0f -> 1.0f  // Ακίνητος
-            currentSpeedKmH < 4.0f -> 3.0f  // Αργό περπάτημα
-            currentSpeedKmH < 5.5f -> 3.5f  // Κανονικό περπάτημα
-            currentSpeedKmH < 7.0f -> 4.5f  // Γρήγορο περπάτημα
-            currentSpeedKmH < 9.0f -> 8.0f  // Jogging / Αργό τρέξιμο
-            else -> 11.0f                   // Τρέξιμο
-        }
-
-        // Υπολογισμός ανά δευτερόλεπτο
-        if (isPointValid && currentSpeedKmH > 1.0f) {
-            val caloriesPerMinute = (met * 3.5f * userWeight) / 200.0f
-            val caloriesPerSecond = caloriesPerMinute / 60.0f
-            serviceTotalCalories += caloriesPerSecond
-        }
-
         // --- ΑΠΟΣΤΟΛΗ ΔΕΔΟΜΕΝΩΝ ΣΤΟ UI ---
         val intent = Intent("LocationUpdate").apply {
             setPackage(packageName)
-            putExtra("lat", smoothedLocation.latitude) // Στέλνουμε το smoothed στο UI
-            putExtra("lng", smoothedLocation.longitude) // Στέλνουμε το smoothed στο UI
+            putExtra("lat", smoothedLocation.latitude)
+            putExtra("lng", smoothedLocation.longitude)
             putExtra("is_valid", isPointValid)
             putExtra("distance", totalDistance)
             putExtra("current_speed", currentSpeedKmH)
             putExtra("accuracy", location.accuracy)
             putExtra("bearing", location.bearing)
-            putExtra("calories", serviceTotalCalories) // <-- ΑΝΤΙΚΑΤΑΣΤΑΣΗ ΕΔΩ
-            putExtra("steps", currentSteps) // Μην ξεχάσεις τα βήματα
+            putExtra("calories", serviceTotalCalories) // Στέλνει τις ενημερωμένες θερμίδες στο UI
+            putExtra("steps", currentSteps)
         }
         sendBroadcast(intent)
 
-        // --- ΚΡΙΣΙΜΗ ΠΡΟΣΘΗΚΗ ΓΙΑ ΤΗΝ ΑΝΑΚΤΗΣΗ ΔΕΔΟΜΕΝΩΝ ---
-// Αν το σημείο είναι έγκυρο, το κρατάμε στη "Master" λίστα του Service
+        // --- ΑΝΑΚΤΗΣΗ ΔΕΔΟΜΕΝΩΝ ΣΤΟ SERVICE ---
         if (isPointValid) {
             val point = org.osmdroid.util.GeoPoint(smoothedLocation.latitude, smoothedLocation.longitude)
             masterPathPoints.add(point)
@@ -361,7 +413,6 @@ class LocationTrackingService : Service(), SensorEventListener {
             serviceTotalSteps = currentSteps
         }
 
-        // --- ΕΝΗΜΕΡΩΣΗ ΜΕΤΑΒΛΗΤΩΝ ---
         if (isPointValid || previousLocation == null) {
             previousLocation = location
         }
@@ -375,8 +426,7 @@ class LocationTrackingService : Service(), SensorEventListener {
         super.onDestroy()
         locationManager.removeUpdates(locationListener)
         statsHandler.removeCallbacks(statsRunnable)
-        // Μηδενισμός για την επόμενη χρήση
-        sensorManager.unregisterListener(this) // Αποδέσμευση αισθητήρα
+        sensorManager.unregisterListener(this)
         totalDistance = 0f
         previousLocation = null
         wakeLock?.release()

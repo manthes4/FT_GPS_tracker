@@ -188,6 +188,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var lastAnnouncedStepIndex = -1       // Για να ξέρουμε ποιο step εκφωνήσαμε
     private var plannedRoutePoints: ArrayList<GeoPoint> = ArrayList()
 
+    private var trackingOverlay: Polyline? = null  // <-- Προσθέστε αυτή τη γραμμή
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -2145,44 +2147,38 @@ $coords
 
                 runOnUiThread {
                     if (road.mStatus == Road.STATUS_OK) {
-                        // --- 0. ΑΦΑΙΡΕΣΗ ΠΑΛΙΩΝ OVERLAYS ---
+                        // 0. Αφαίρεση παλιών overlays δρομολόγησης
                         roadBorderOverlay?.let { map.overlays.remove(it) }
                         roadOverlay?.let { map.overlays.remove(it) }
 
-                        // --- 1. ΔΗΜΙΟΥΡΓΙΑ ΜΑΥΡΟΥ ΠΕΡΙΓΡΑΜΜΑΤΟΣ (BORDER) ---
+                        // 1. Μαύρο περίγραμμα
                         roadBorderOverlay = RoadManager.buildRoadOverlay(road).apply {
                             outlinePaint.apply {
                                 color = Color.BLACK
-                                strokeWidth = 20f
+                                strokeWidth = 18f
                                 strokeCap = Paint.Cap.ROUND
                                 strokeJoin = Paint.Join.ROUND
                                 isAntiAlias = true
                             }
                         }
 
-                        // --- 2. ΔΗΜΙΟΥΡΓΙΑ ΚΥΡΙΟΥ OVERLAY (CORE) ---
+                        // 2. Κύρια έγχρωμη γραμμή (π.χ. Σιέλ / Γαλάζιο)
                         roadOverlay = RoadManager.buildRoadOverlay(road).apply {
                             outlinePaint.apply {
-                                color = Color.parseColor("#2BB6C4")
-                                strokeWidth = 12f
+                                color = Color.parseColor("#00B0FF")
+                                strokeWidth = 10f
                                 strokeCap = Paint.Cap.ROUND
                                 strokeJoin = Paint.Join.ROUND
                                 isAntiAlias = true
                             }
                         }
 
-                        // --- 3. ΠΡΟΣΘΗΚΗ ΣΤΟΝ ΧΑΡΤΗ ΣΕ ΣΤΑΘΕΡΗ ΒΑΣΗ (Index 0 & 1) ---
-                        // Τοποθετούνται πάντα στον πάτο των overlays για να μην καλύπτουν τίποτα άλλο
-                        val safeBorderIndex = if (map.overlays.size > 0) 0 else 0
-                        map.overlays.add(safeBorderIndex, roadBorderOverlay)
+                        // 3. Προσθήκη με τη σωστή σειρά στο map overlay list
+                        map.overlays.add(roadBorderOverlay)
+                        map.overlays.add(roadOverlay)
 
-                        val safeCoreIndex = if (map.overlays.size > 1) 1 else map.overlays.size
-                        map.overlays.add(safeCoreIndex, roadOverlay)
-
-                        // 🎯 ΑΠΟΘΗΚΕΥΣΗ ΣΗΜΕΙΩΝ ΓΙΑ ΤΟΝ ΕΛΕΓΧΟ ΕΚΤΡΟΠΗΣ (OFF-ROUTE)
                         plannedRoutePoints = road.mRouteHigh
 
-                        // --- ΥΠΟΛΟΓΙΣΜΟΣ ΧΡΟΝΟΥ ΜΕ ΤΑΧΥΤΗΤΑ 4 km/h ---
                         val walkingMinutes = (road.mLength / 4.0) * 60.0
                         val totalMinutes = Math.round(walkingMinutes).toInt()
                         val timeText = if (totalMinutes >= 60) {
@@ -2205,7 +2201,7 @@ $coords
 
                         map.invalidate()
 
-                        // --- 4. ΚΑΘΑΡΙΣΜΟΣ & ΜΗΔΕΝΙΣΜΟΣ ΜΕΤΑΒΛΗΤΩΝ ΠΛΟΗΓΗΣΗΣ ---
+                        // Καθαρισμός & ενημέρωση οδηγιών navigation
                         navigationSteps.clear()
                         lastStraightAnnouncedDistance = 0f
                         isOffRouteAnnounced = false
@@ -2227,18 +2223,6 @@ $coords
                             }
                         }
 
-                        if (navigationSteps.isNotEmpty()) {
-                            val firstStep = navigationSteps.first()
-                            val cleanFirst = firstStep.instruction.lowercase()
-                            if (cleanFirst.contains("waypoint") || cleanFirst.contains("head") || cleanFirst.contains("depart")) {
-                                firstStep.hasAnnouncedAdvance = true
-                                firstStep.hasAnnouncedImmediate = true
-                            }
-                        }
-
-                        Log.d("NAV_DEBUG", "Προστέθηκαν ${navigationSteps.size} οδηγίες πλοήγησης.")
-
-                        // --- 5. ΑΡΧΙΚΗ ΕΚΦΩΝΗΣΗ ---
                         if (!isRecalculation) {
                             val readableDistance = formatDistanceForSpeech(road.mLength)
                             val initialMessage = "Η διαδρομή υπολογίστηκε. Απόσταση $readableDistance. Εκτιμώμενος χρόνος $timeText."
@@ -2429,36 +2413,66 @@ $coords
     override fun onResume() {
         super.onResume()
 
-        // Αν το Service τρέχει (υπάρχουν σημεία), επανέφερε την εικόνα
+        // -------------------------------------------------------------
+        // 1. ΖΩΝΤΑΝΗ ΚΑΤΑΓΡΑΦΗ ΚΙΝΗΣΗΣ (Walked Path - Επαναφορά σε Μπλε)
+        // -------------------------------------------------------------
         if (LocationTrackingService.masterPathPoints.isNotEmpty()) {
-
-            // 1. Ενημέρωσε την τοπική λίστα της MainActivity για να συνεχίσει ο σχεδιασμός
             pathPoints.clear()
             pathPoints.addAll(LocationTrackingService.masterPathPoints)
 
-            // 2. Ξανασχεδίασε την Polyline αμέσως
-            roadOverlay?.let { map.overlays.remove(it) }
-            roadOverlay = Polyline(map)
-            roadOverlay?.setPoints(pathPoints)
-            roadOverlay?.outlinePaint?.color = android.graphics.Color.BLUE
-            roadOverlay?.outlinePaint?.strokeWidth = 10f
-            map.overlays.add(roadOverlay)
+            if (trackingOverlay == null) {
+                trackingOverlay = Polyline(map)
+            }
 
-            // 3. Ενημέρωσε τα TextViews με τα τελευταία νούμερα από το Service
+            trackingOverlay?.outlinePaint?.apply {
+                color = android.graphics.Color.parseColor("#E60000") // Κόκκινο
+                strokeWidth = 10f
+                strokeCap = android.graphics.Paint.Cap.ROUND
+                strokeJoin = android.graphics.Paint.Join.ROUND
+                isAntiAlias = true
+            }
+            trackingOverlay?.setPoints(pathPoints)
+
+            if (!map.overlays.contains(trackingOverlay)) {
+                map.overlays.add(trackingOverlay)
+            }
+
+            // Ενημέρωση UI στατιστικών
             val distKm = LocationTrackingService.serviceTotalDistance / 1000f
             tvDistance.text = String.format("%.2f km", distKm)
             tvSteps.text = LocationTrackingService.serviceTotalSteps.toString()
-
-            // ΕΜΦΑΝΙΣΗ ΘΕΡΜΙΔΩΝ ΣΤΗΝ ONRESUME
             tvGrade.text = String.format("%.0f kcal", LocationTrackingService.serviceTotalCalories)
 
-            // 4. Σιγουρέψου ότι το πάνελ είναι ορατό
             if (isTracking) {
                 statsContainer.visibility = View.VISIBLE
             }
-
-            map.invalidate()
         }
+
+        // -------------------------------------------------------------
+        // 2. ΣΧΕΔΙΑΣΜΕΝΗ ΔΙΑΔΡΟΜΗ ΠΛΟΗΓΗΣΗΣ (Planned Route -> ΕΞΑΝΑΓΚΑΣΜΟΣ ΠΡΑΣΙΝΟΥ)
+        // -------------------------------------------------------------
+        roadOverlay?.let { route ->
+            // Επιβολή Θαλασσι χρώματος στη σχεδιασμένη γραμμή
+            route.outlinePaint.apply {
+                color = Color.parseColor("#00B0FF")
+                strokeWidth = 12f
+                strokeCap = android.graphics.Paint.Cap.ROUND
+                strokeJoin = android.graphics.Paint.Join.ROUND
+                isAntiAlias = true
+            }
+
+            // Εξασφάλιση ότι το έγχρωμο overlay μπαίνει ΠΑΝΩ από το μαύρο περίγραμμα
+            roadBorderOverlay?.let { border ->
+                map.overlays.remove(border)
+                map.overlays.remove(route)
+
+                map.overlays.add(border) // 1ο: Μαύρο περίγραμμα από κάτω
+                map.overlays.add(route)  // 2ο: Πράσινη γραμμή από πάνω
+            }
+        }
+
+        // 3. Ανανέωση του χάρτη
+        map.invalidate()
     }
 }
 
