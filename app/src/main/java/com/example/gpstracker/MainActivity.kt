@@ -890,6 +890,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         updateNotification("Tracking started")
 
         // 4. ΕΝΗΜΕΡΩΣΗ UI
+// 4. ΕΝΗΜΕΡΩΣΗ UI
         updateStatsRunnable = object : Runnable {
             override fun run() {
                 if (isTracking) {
@@ -907,7 +908,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val distanceInKm = totalDistance / 1000.0
                     val avgSpeed = if (elapsedTimeInSeconds > 0) (distanceInKm / elapsedTimeInSeconds) * 3600 else 0.0
 
-                    tvDistance.text = String.format("%.2f km", distanceInKm)
+                    // --- ΔΙΟΡΘΩΣΗ ΕΔΩ ΓΙΑ ΜΕΤΡΑ / ΧΙΛΙΟΜΕΤΡΑ ---
+                    if (totalDistance < 1000f) {
+                        tvDistance.text = String.format("%.0f m", totalDistance)
+                    } else {
+                        tvDistance.text = String.format("%.2f km", distanceInKm)
+                    }
+                    // ------------------------------------------
+
                     tvTime.text = formatTime(elapsedTimeInSeconds)
                     tvCurrentSpeed.text = String.format("%.1f", currentSpeed)
                     tvAvgSpeed.text = String.format("%.1f", avgSpeed)
@@ -996,7 +1004,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 // Κλίση Διαδρομής & Θερμίδες
                 tvGrade.text = if (Math.abs(roadGrade) < 0.5) "0.0" else String.format("%.1f", roadGrade)
                 val calories = intent.getDoubleExtra("calories", 0.0)
-                tvGrade.text = String.format("%.0f kcal", calories)
+                tvGrade.text = String.format("%.0f", calories)
                 tvGrade.setTextColor(Color.WHITE)
 
                 if (startMarker == null) {
