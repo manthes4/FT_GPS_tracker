@@ -428,6 +428,7 @@
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent">
 
+        <!-- Τα υπόλοιπα κουμπιά (πρώτα στη σειρά) -->
         <ImageButton
             android:id="@+id/button_weight"
             android:layout_width="40dp"
@@ -435,15 +436,18 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/accessibility_new_24px"
             android:contentDescription="Set Weight"
+            android:visibility="gone"
             app:tint="#05BBFD" />
 
         <ImageButton
             android:id="@+id/fab_search"
             android:layout_width="40dp"
             android:layout_height="40dp"
+            android:layout_marginStart="8dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/search_24"
             android:contentDescription="Search"
+            android:visibility="gone"
             app:tint="#05BBFD" />
 
         <ImageButton
@@ -454,6 +458,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/direction"
             android:contentDescription="Plan"
+            android:visibility="gone"
             app:tint="#05BBFD" />
 
         <ImageButton
@@ -464,6 +469,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/undo"
             android:contentDescription="Undo"
+            android:visibility="gone"
             app:tint="#05BBFD" />
 
         <ImageButton
@@ -474,6 +480,18 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/baseline_delete_24"
             android:contentDescription="Clear Map"
+            android:visibility="gone"
+            app:tint="#05BBFD" />
+
+        <!-- Το κουμπί με τις τρεις τελείες (τελευταίο στη σειρά, μένει πάντα ορατό) -->
+        <ImageButton
+            android:id="@+id/button_menu_toggle"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="0dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/apps_24px"
+            android:contentDescription="Menu Toggle"
             app:tint="#05BBFD" />
 
     </LinearLayout>

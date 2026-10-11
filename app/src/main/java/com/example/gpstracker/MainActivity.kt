@@ -363,6 +363,25 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             showWeightInputDialog()
         }
 
+        // --- ΛΕΙΤΟΥΡΓΙΑ ΑΝΑΠΤΥΞΗΣ/ΣΥΜΠΤΥΞΗΣ ΜΕΝΟΥ ---
+        var isMenuExpanded = false
+        val btnMenuToggle = findViewById<ImageButton>(R.id.button_menu_toggle)
+        val btnSearch = findViewById<ImageButton>(R.id.fab_search)
+        val btnPlanMode = findViewById<ImageButton>(R.id.button_plan_mode)
+        val btnUndoPlan = findViewById<ImageButton>(R.id.button_undo_plan)
+        // (Τα btnWeight και btnClearMap υπάρχουν ήδη παραπάνω, οπότε δεν βάζουμε "val" ξανά)
+
+        btnMenuToggle.setOnClickListener {
+            isMenuExpanded = !isMenuExpanded
+            val newVisibility = if (isMenuExpanded) View.VISIBLE else View.GONE
+
+            btnWeight.visibility = newVisibility
+            btnSearch.visibility = newVisibility
+            btnPlanMode.visibility = newVisibility
+            btnUndoPlan.visibility = newVisibility
+            btnClearMap.visibility = newVisibility // Χρησιμοποιεί την υπάρχουσα μεταβλητή
+        }
+
         val btnUndo = findViewById<android.widget.ImageButton>(R.id.button_undo_plan)
         btnUndo.setOnClickListener {
             if (isPlanningEnabled) {
