@@ -104,6 +104,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var mapEventsOverlay: MapEventsOverlay
 
+    private var isAutoCenterEnabled = true
+
     private lateinit var tvDistance: TextView
     private lateinit var tvTime: TextView
     private lateinit var tvCurrentSpeed: TextView
@@ -383,6 +385,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             enableCompass()
         }
         map.overlays.add(compassOverlay)
+
+        // --- ΚΛΙΚ ΣΤΗΝ ΠΥΞΙΔΑ ΓΙΑ ΚΕΝΤΡΑΡΙΣΜΑ ---
+        val compassTouchTarget = findViewById<View>(R.id.compassTouchTarget)
+        compassTouchTarget.setOnClickListener {
+            isAutoCenterEnabled = true // Ενεργοποίηση αυτόματου κεντραρίσματος
+
+            val lastPoint = LocationTrackingService.masterPathPoints.lastOrNull()
+            if (lastPoint != null) {
+                map.controller.animateTo(lastPoint)
+                Toast.makeText(this, "Κεντράρισμα στη θέση σας", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Αναμονή σήματος GPS...", Toast.LENGTH_SHORT).show()
+            }
+        }
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 

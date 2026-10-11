@@ -10,15 +10,32 @@
 
     <!-- TextView for displaying distance and time -->
 
-    <org.osmdroid.views.MapView
-        android:id="@+id/map"
+    <!-- FrameLayout για τον Χάρτη και την Πυξίδα -->
+    <FrameLayout
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintBottom_toTopOf="@+id/button_container"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.0"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toTopOf="parent">
+
+        <!-- Ο Χάρτης -->
+        <org.osmdroid.views.MapView
+            android:id="@+id/map"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <!-- ΑΟΡΑΤΟ VIEW ΜΟΝΟ 56x56dp ΠΑΝΩ ΑΡΙΣΤΕΡΑ -->
+        <View
+            android:id="@+id/compassTouchTarget"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_gravity="top|start"
+            android:background="@android:color/transparent"
+            android:clickable="true"
+            android:focusable="true" />
+
+    </FrameLayout>
 
     <androidx.constraintlayout.widget.Barrier
         android:id="@+id/barrier_bottom"
@@ -416,7 +433,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/balance_24px"
+            android:src="@drawable/accessibility_new_24px"
             android:contentDescription="Set Weight"
             app:tint="#05BBFD" />
 
@@ -460,6 +477,5 @@
             app:tint="#05BBFD" />
 
     </LinearLayout>
-
 
 </androidx.constraintlayout.widget.ConstraintLayout>
