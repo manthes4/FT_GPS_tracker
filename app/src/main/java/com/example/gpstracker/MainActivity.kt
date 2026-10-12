@@ -1442,18 +1442,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         distance: String,
         avgSpeed: String,
         steps: String,
-        calories: String // <-- ΠΡΟΣΘΗΚΗ ΠΑΡΑΜΕΤΡΟΥ
+        calories: String
     ): String {
-
         if (pathPoints.isEmpty()) return "no_path"
 
-        // Όνομα αρχείου (παραμένει σε yyyyMMdd_HHmmss για μοναδικότητα)
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         val fileName = "route_$timestamp.kml"
-
-        // Ημερομηνία για εμφάνιση στα stats ή στο KML (dd/MM/yyyy)
         val displayDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
-
         val coords = pathPoints.joinToString(" ") { "${it.longitude},${it.latitude},0" }
 
         val kml = """
@@ -1464,13 +1459,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 <name>Διαδρομή $timestamp</name>
 
 <Placemark>
+<!-- ΕΔΩ ΠΡΟΣΘΕΤΟΥΜΕ ΤΙΣ ΘΕΡΜΙΔΕΣ ΣΤΟ DESCRIPTION -->
+<description>⏱️ $time | 📍 $distance | ⚡ $avgSpeed | 👣 $steps | 🔥 $calories</description>
 
 <ExtendedData>
 <Data name="time"><value>$time</value></Data>
 <Data name="distance"><value>$distance</value></Data>
 <Data name="avg_speed"><value>$avgSpeed</value></Data>
 <Data name="steps"><value>$steps</value></Data>
-<Data name="calories"><value>$calories</value></Data> </ExtendedData>
+<Data name="calories"><value>$calories</value></Data>
+</ExtendedData>
 
 <LineString>
 <coordinates>
@@ -1484,17 +1482,12 @@ $coords
 """.trimIndent()
 
         return try {
-
             val file = File(filesDir, fileName)
             file.writeText(kml)
-
             fileName
-
         } catch (e: Exception) {
-
             Log.e("SAVE_KML", e.message ?: "error")
             "error_kml"
-
         }
     }
 
@@ -1666,9 +1659,8 @@ $coords
         } else rawDate
     }
 
-    private fun formatStatsForDisplay(prettyDate: String, kmlDescription: String): String {
+    private fun formatStatsForDisplayWithCalories(kmlDescription: String, calories: String): String {
         return try {
-            // Το kmlDescription από την parseKmlFile είναι πλέον: "⏱️ 00:10:00 | 📍 1.5 | ⚡ 5.0 | 👣 2000"
             val parts = kmlDescription.split("|").map { it.trim() }
 
             val time = parts.getOrNull(0) ?: "⏱️ --"
@@ -1676,13 +1668,15 @@ $coords
             val speed = parts.getOrNull(2) ?: "⚡ --"
             val steps = parts.getOrNull(3) ?: "👣 --"
 
-// Σειρά 1: Χρόνος και Απόσταση (με "χλμ")
-            // Σειρά 2: Ταχύτητα (με "Avg") και Βήματα (με "Steps")
+            // Παίρνουμε τις θερμίδες είτε από το 5ο μέρος του KML είτε από τα SharedPreferences
+            val rawCal = parts.getOrNull(4)?.replace("🔥", "")?.trim()
+            val finalCal = if (!rawCal.isNullOrEmpty() && rawCal != "-") rawCal else calories
+
             "$time &nbsp;&nbsp;&nbsp; $dist χλμ &nbsp;&nbsp;<br/>" +
-                    "&nbsp;&nbsp;&nbsp; $speed km/h &nbsp;&nbsp;&nbsp; $steps Steps &nbsp;&nbsp;"
+                    "$speed &nbsp;&nbsp;&nbsp; $steps &nbsp;&nbsp;&nbsp; 🔥 $finalCal"
 
         } catch (e: Exception) {
-            kmlDescription // fallback αν κάτι πάει στραβά
+            kmlDescription
         }
     }
 
@@ -1693,6 +1687,20 @@ $coords
             parseKmlFile(inputStream)
             inputStream.close()
 
+            // 1. Βρίσκουμε τις θερμίδες απευθείας από τα SharedPreferences με βάση το όνομα του αρχείου
+            val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
+            val statsText = sharedPreferences.getString("stats", "") ?: ""
+            var foundCalories = "--"
+
+            for (line in statsText.split("\n")) {
+                val parts = line.trim().split("\\s+".toRegex()).filter { it.isNotEmpty() }
+                // Η δομή αποθήκευσης είναι: Ημερομηνία(0) Χρόνος(1) Απόσταση(2) Ταχύτητα(3) Βήματα(4) Θερμίδες(5) Αρχείο(6)
+                if (parts.size >= 7 && parts[6] == file.name) {
+                    foundCalories = parts[5] // Οι θερμίδες βρίσκονται στη θέση 5
+                    break
+                }
+            }
+
             val kmlDescription = kmlRoute?.snippet ?: kmlGreenMarker?.snippet ?: ""
             val points = kmlRoute?.points
 
@@ -1702,26 +1710,16 @@ $coords
 
                 kmlGreenMarker?.let { marker ->
                     marker.closeInfoWindow()
-
-                    // 1. Σύνδεση με το custom layout
                     marker.infoWindow = CustomKmlInfoWindow(map)
-
-                    // 2. Δεδομένα
-                    val datePart = rawFilename.removePrefix("route_").split("_")[0]
-                    val prettyDate = formatKmlDate(datePart)
 
                     marker.title = "📅 $prettyDate"
 
                     val rawStats = marker.snippet ?: ""
-                    // Προσοχή: Εδώ περνάμε το HTML string
-                    marker.snippet = formatStatsForDisplay(prettyDate, rawStats)
 
-                    // ΤΟ ΚΛΕΙΔΙ ΓΙΑ ΤΟ ΥΨΟΣ:
-                    // Το (0.5f, 0.0f) το βάζει ακριβώς πάνω από το marker.
-                    // Αν θέλουμε να το "πετάξουμε" πιο ψηλά, χρησιμοποιούμε αρνητική τιμή στο y (π.χ. -0.2f)
+                    // Δημιουργούμε το snippet περνώντας τα στατιστικά και τις θερμίδες από τα SharedPreferences
+                    marker.snippet = formatStatsForDisplayWithCalories(rawStats, foundCalories)
+
                     marker.setInfoWindowAnchor(0.5f, -0.4f)
-
-                    // 4. Εμφάνιση
                     marker.showInfoWindow()
                     map.invalidate()
                 }
@@ -1812,6 +1810,7 @@ $coords
             var distance: String? = null
             var avgSpeed: String? = null
             var steps: String? = null
+            var calories: String? = null // <-- ΠΡΟΣΘΗΚΗ
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 when (eventType) {
@@ -1834,6 +1833,7 @@ $coords
                                         "distance" -> distance = value
                                         "avg_speed" -> avgSpeed = value
                                         "steps" -> steps = value
+                                        "calories" -> calories = value // <-- ΠΡΟΣΘΗΚΗ
                                     }
                                 }
                             }
@@ -1918,7 +1918,7 @@ $coords
                     // Αποθήκευσε το description (τα στατιστικά) σε μια μεταβλητή
                     // ή στο snippet προσωρινά για να το βρει η loadKmlFromFile
                     val infoText =
-                        "⏱️ ${time ?: "-"} | 📍 ${distance ?: "-"} | ⚡ ${avgSpeed ?: "-"} | 👣 ${steps ?: "-"}"
+                        "⏱️ ${time ?: "-"} | 📍 ${distance ?: "-"} | ⚡ ${avgSpeed ?: "-"} | 👣 ${steps ?: "-"} | 🔥 ${calories ?: "-"}"
                     kmlGreenMarker?.snippet = infoText
                 }
 
