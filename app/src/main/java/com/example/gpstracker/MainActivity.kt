@@ -706,43 +706,92 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val north = mapCenter.latitude + 0.1
         val east = mapCenter.longitude + 0.1
 
-        val overpassUrl =
-            URL("https://overpass-api.de/api/interpreter?data=[out:json];node[amenity]($south,$west,$north,$east);out center;")
+        val queryData = "[out:json];node[amenity]($south,$west,$north,$east);out center;"
 
-        val client = OkHttpClient()
-        val request = Request.Builder().url(overpassUrl).build()
+        val mirrors = listOf(
+            "https://overpass-api.de/api/interpreter",
+            "https://overpass.private.coffee/api/interpreter"
+        )
 
-        client.newCall(request).enqueue(object : okhttp3.Callback {
-            override fun onFailure(call: okhttp3.Call, e: IOException) {
-                Log.e("Overpass API", "Failed to fetch POIs", e)
-                runOnUiThread { showCustomToast("Failed to fetch POIs") }
+        val client = OkHttpClient.Builder()
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+
+        fun tryFetch(mirrorIndex: Int) {
+            if (mirrorIndex >= mirrors.size) {
+                Log.e("Overpass API", "All Overpass mirrors failed.")
+                runOnUiThread { showCustomToast("Αποτυχία φόρτωσης POIs. Δοκιμάστε αργότερα.") }
+                return
             }
 
-            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                val jsonData = response.body?.string()
-                if (jsonData != null) {
-                    try {
-                        val jsonObject = JSONObject(jsonData)
-                        val elements = jsonObject.getJSONArray("elements")
+            val currentUrl = mirrors[mirrorIndex]
 
-                        for (i in 0 until elements.length()) {
-                            val element = elements.getJSONObject(i)
-                            val lat = element.getDouble("lat")
-                            val lon = element.getDouble("lon")
-                            val tags = element.getJSONObject("tags")
-                            val amenity = tags.getString("amenity")
-                            val name = tags.optString("name", "")
+            // Δημιουργία POST Request χωρίς ανάγκη για MediaType imports
+            val requestBody = okhttp3.RequestBody.create(null, queryData)
 
-                            // Add POIs directly since we only call this when visible
-                            runOnUiThread { addPoiToMap(lat, lon, amenity, name) }
+            val request = Request.Builder()
+                .url(currentUrl)
+                .post(requestBody)
+                .header("User-Agent", "GPSTrackerApp/1.0 (Android)")
+                .build()
+
+            client.newCall(request).enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, e: IOException) {
+                    Log.w("Overpass API", "Mirror ${mirrors[mirrorIndex]} failed: ${e.message}, trying next...")
+                    tryFetch(mirrorIndex + 1)
+                }
+
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    val jsonData = response.body?.string()
+                    if (jsonData != null) {
+                        val trimmedData = jsonData.trim()
+                        if (trimmedData.startsWith("<!DOCTYPE", true) || trimmedData.startsWith("<html", true)) {
+                            Log.w("Overpass API", "Mirror ${mirrors[mirrorIndex]} returned HTML (Rate Limit), trying next...")
+                            tryFetch(mirrorIndex + 1)
+                            return
                         }
-                    } catch (e: Exception) {
-                        Log.e("Overpass API", "Failed to parse POI data", e)
-                        runOnUiThread { showCustomToast("Failed to parse POI data") }
+
+                        try {
+                            val jsonObject = JSONObject(jsonData)
+                            val elements = jsonObject.getJSONArray("elements")
+
+                            for (i in 0 until elements.length()) {
+                                val element = elements.getJSONObject(i)
+
+                                val lat: Double
+                                val lon: Double
+                                if (element.has("lat") && element.has("lon")) {
+                                    lat = element.getDouble("lat")
+                                    lon = element.getDouble("lon")
+                                } else if (element.has("center")) {
+                                    val center = element.getJSONObject("center")
+                                    lat = center.getDouble("lat")
+                                    lon = center.getDouble("lon")
+                                } else {
+                                    continue
+                                }
+
+                                val tags = element.optJSONObject("tags") ?: continue
+                                val amenity = tags.optString("amenity", "")
+                                if (amenity.isEmpty()) continue
+
+                                val name = tags.optString("name", "")
+
+                                runOnUiThread { addPoiToMap(lat, lon, amenity, name) }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("Overpass API", "Failed to parse JSON from mirror ${mirrors[mirrorIndex]}", e)
+                            tryFetch(mirrorIndex + 1)
+                        }
+                    } else {
+                        tryFetch(mirrorIndex + 1)
                     }
                 }
-            }
-        })
+            })
+        }
+
+        tryFetch(0)
     }
 
     private fun showCustomToast(message: String) {
