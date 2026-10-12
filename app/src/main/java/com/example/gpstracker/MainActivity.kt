@@ -1414,27 +1414,24 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun saveStats(time: String, distance: String, avgSpeed: String, steps: String, calories: String) {
-        // Α. Δημιουργούμε το κρυφό KML αρχείο και περνάμε και τις θερμίδες
-        val kmlFileName = saveKmlInternal(time, distance, avgSpeed, steps, calories)
+        // 1. Δημιουργία timestamp για το KML αρχείο (π.χ. 20261005_112001)
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
 
-        // ΑΝ το kmlFileName επέστρεψε το παλιό ή "no_path", σταμάτα εδώ!
+        // 2. Δημιουργία ημερομηνίας και ώρας για το UI ενωμένες με underscore (_)
+        val displayDateTime = SimpleDateFormat("dd/MM/yyyy_HH:mm", Locale.getDefault()).format(Date())
+
+        val kmlFileName = saveKmlInternal(time, distance, avgSpeed, steps, calories, timestamp)
         if (kmlFileName == "no_path" || kmlFileName == "error_kml") return
 
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         val stats = sharedPreferences.getString("stats", "") ?: ""
 
-        // Χρησιμοποιούμε displayDate ίδια με αυτή που μπήκε στο KML για συνέπεια
-        val displayDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
-
-        // Καθαρισμός κενών από τις θερμίδες (π.χ. "350 kcal" -> "350kcal")
-        // για να μην επηρεαστεί το split("\\s+") στην StatsActivity
         val cleanCalories = calories.replace(" ", "")
 
-        // Format: Ημερομηνία Χρόνος Απόσταση Ταχύτητα Βήματα Θερμίδες Όνομα_Αρχείου
-        val newStat = "$displayDate $time $distance $avgSpeed $steps $cleanCalories $kmlFileName\n"
+        // Η δομή αποθήκευσης: Ημερομηνία_Ώρα Χρόνος Απόσταση Ταχύτητα Βήματα Θερμίδες Όνομα_Αρχείου
+        val newStat = "$displayDateTime $time $distance $avgSpeed $steps $cleanCalories $kmlFileName\n"
 
         sharedPreferences.edit().putString("stats", stats + newStat).apply()
-        Log.d("GPS_TRACKER", "Stats saved with KML: $kmlFileName")
     }
 
     private fun saveKmlInternal(
@@ -1442,13 +1439,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         distance: String,
         avgSpeed: String,
         steps: String,
-        calories: String
+        calories: String,
+        timestamp: String
     ): String {
         if (pathPoints.isEmpty()) return "no_path"
 
-        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         val fileName = "route_$timestamp.kml"
-        val displayDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
         val coords = pathPoints.joinToString(" ") { "${it.longitude},${it.latitude},0" }
 
         val kml = """
@@ -1459,10 +1455,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 <name>Διαδρομή $timestamp</name>
 
 <Placemark>
-<!-- ΕΔΩ ΠΡΟΣΘΕΤΟΥΜΕ ΤΙΣ ΘΕΡΜΙΔΕΣ ΣΤΟ DESCRIPTION -->
 <description>⏱️ $time | 📍 $distance | ⚡ $avgSpeed | 👣 $steps | 🔥 $calories</description>
 
 <ExtendedData>
+<Data name="timestamp"><value>$timestamp</value></Data>
 <Data name="time"><value>$time</value></Data>
 <Data name="distance"><value>$distance</value></Data>
 <Data name="avg_speed"><value>$avgSpeed</value></Data>
@@ -1668,12 +1664,16 @@ $coords
             val speed = parts.getOrNull(2) ?: "⚡ --"
             val steps = parts.getOrNull(3) ?: "👣 --"
 
-            // Παίρνουμε τις θερμίδες είτε από το 5ο μέρος του KML είτε από τα SharedPreferences
+            // Παίρνουμε τις θερμίδες είτε από το KML είτε από τα SharedPreferences
             val rawCal = parts.getOrNull(4)?.replace("🔥", "")?.trim()
             val finalCal = if (!rawCal.isNullOrEmpty() && rawCal != "-") rawCal else calories
 
-            "$time &nbsp;&nbsp;&nbsp; $dist χλμ &nbsp;&nbsp;<br/>" +
-                    "$speed &nbsp;&nbsp;&nbsp; $steps &nbsp;&nbsp;&nbsp; 🔥 $finalCal"
+            // 1η Σειρά: Ημερομηνία (Title/Date) & Απόσταση
+            // 2η Σειρά: Χρόνος & Μέση Ταχύτητα
+            // 3η Σειρά: Βήματα & Θερμίδες
+            "$dist &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br/>" +
+                    "$time &nbsp;&nbsp;&nbsp; $speed km/h &nbsp;&nbsp;<br/>" +
+                    "$steps &nbsp;&nbsp;&nbsp; 🔥 $finalCal"
 
         } catch (e: Exception) {
             kmlDescription
@@ -1683,20 +1683,19 @@ $coords
     private fun loadKmlFromFile(file: File) {
         try {
             val inputStream = file.inputStream()
-            val rawFilename = file.nameWithoutExtension
+            val rawFilename = file.nameWithoutExtension // π.χ. route_20261005_112001
             parseKmlFile(inputStream)
             inputStream.close()
 
-            // 1. Βρίσκουμε τις θερμίδες απευθείας από τα SharedPreferences με βάση το όνομα του αρχείου
+            // 1. Ανάγνωση θερμίδων από SharedPreferences
             val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
             val statsText = sharedPreferences.getString("stats", "") ?: ""
             var foundCalories = "--"
 
             for (line in statsText.split("\n")) {
                 val parts = line.trim().split("\\s+".toRegex()).filter { it.isNotEmpty() }
-                // Η δομή αποθήκευσης είναι: Ημερομηνία(0) Χρόνος(1) Απόσταση(2) Ταχύτητα(3) Βήματα(4) Θερμίδες(5) Αρχείο(6)
                 if (parts.size >= 7 && parts[6] == file.name) {
-                    foundCalories = parts[5] // Οι θερμίδες βρίσκονται στη θέση 5
+                    foundCalories = parts[5]
                     break
                 }
             }
@@ -1705,18 +1704,34 @@ $coords
             val points = kmlRoute?.points
 
             if (points != null && points.isNotEmpty()) {
-                val datePart = rawFilename.removePrefix("route_").split("_")[0]
-                val prettyDate = formatKmlDate(datePart)
+                // --- 2. ΔΗΜΙΟΥΡΓΙΑ ΩΡΑΙΑΣ ΗΜΕΡΟΜΗΝΙΑΣ & ΩΡΑΣ ΑΠΟ ΤΟ ΟΝΟΜΑ ΑΡΧΕΙΟΥ ---
+                // Το rawFilename είναι της μορφής route_YYYYMMDD_HHMMSS
+                val cleanName = rawFilename.removePrefix("route_")
+                val dateTimeParts = cleanName.split("_")
+
+                val prettyDateTime = if (dateTimeParts.size >= 2) {
+                    val datePart = dateTimeParts[0] // YYYYMMDD (π.χ. 20261005)
+                    val timePart = dateTimeParts[1] // HHMMSS (π.χ. 112001)
+
+                    val formattedDate = formatKmlDate(datePart) // Μετατροπή σε DD/MM/YYYY
+                    val formattedTime = if (timePart.length >= 6) {
+                        "${timePart.substring(0, 2)}:${timePart.substring(2, 4)}" // HH:MM
+                    } else ""
+
+                    if (formattedTime.isNotEmpty()) "📅 $formattedDate   ⏰ $formattedTime" else "📅 $formattedDate"
+                } else {
+                    "📅 Διαδρομή"
+                }
+                // -------------------------------------------------------------
 
                 kmlGreenMarker?.let { marker ->
                     marker.closeInfoWindow()
                     marker.infoWindow = CustomKmlInfoWindow(map)
 
-                    marker.title = "📅 $prettyDate"
+                    // 3. ΕΠΙΒΟΛΗ ΤΗΣ ΗΜΕΡΟΜΗΝΙΑΣ & ΩΡΑΣ ΣΤΟΝ ΤΙΤΛΟ ΤΟΥ MARKER
+                    marker.title = prettyDateTime
 
                     val rawStats = marker.snippet ?: ""
-
-                    // Δημιουργούμε το snippet περνώντας τα στατιστικά και τις θερμίδες από τα SharedPreferences
                     marker.snippet = formatStatsForDisplayWithCalories(rawStats, foundCalories)
 
                     marker.setInfoWindowAnchor(0.5f, -0.4f)

@@ -23,24 +23,39 @@ class StatsActivity : AppCompatActivity() {
 
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         val statsText = sharedPreferences.getString("stats", "") ?: ""
-        val statsList = statsText.split("\n")
-            .map { it.trim() }             // Αφαιρεί κενά διαστήματα από την αρχή και το τέλος κάθε γραμμής
-            .filter { it.isNotEmpty() }    // Κρατάει μόνο τις γραμμές που έχουν πραγματικά δεδομένα
 
-        statsList.forEachIndexed { index, stat ->
+        // Διαβάζουμε τις γραμμές, κρατάμε τον αυθεντικό τους δείκτη και τις αντιστρέφουμε (πιο πρόσφατες πρώτη)
+        val statsList = statsText.split("\n")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .withIndex()
+            .toList()
+            .reversed()
+
+        statsList.forEach { indexedValue ->
+            val originalIndex = indexedValue.index // Ο πραγματικός δείκτης στη λίστα αποθήκευσης
+            val stat = indexedValue.value
+
             val statView = layoutInflater.inflate(R.layout.stat_item, statsContainer, false)
             val parts = stat.split("\\s+".toRegex()).filter { it.isNotEmpty() }
 
-            // ΕΛΕΓΧΟΣ: Πλέον έχουμε 7 μέρη (Ημερομηνία, Χρόνος, Απόσταση, Ταχύτητα, Βήματα, Θερμίδες, Αρχείο)
             if (parts.size >= 7) {
-                statView.findViewById<TextView>(R.id.stat_date).text = parts[0]
+                val rawDateTime = parts[0]
+                val formattedDateTime = if (rawDateTime.contains("_")) {
+                    val dt = rawDateTime.split("_")
+                    "📅 ${dt[0]}  ⏰ ${dt[1]}"
+                } else {
+                    "📅 $rawDateTime"
+                }
+
+                statView.findViewById<TextView>(R.id.stat_date).text = formattedDateTime
                 statView.findViewById<TextView>(R.id.stat_time).text = "Χρόνος: ${parts[1]}"
                 statView.findViewById<TextView>(R.id.stat_dist).text = "Dist: ${parts[2]} km"
                 statView.findViewById<TextView>(R.id.stat_avg_speed).text = "Avg: ${parts[3]} km/h"
                 statView.findViewById<TextView>(R.id.stat_steps).text = "Steps: ${parts[4]}"
-                statView.findViewById<TextView>(R.id.stat_calories).text ="Kcal: ${parts[5]}"  // Εμφάνιση Θερμίδων (π.χ. 350kcal)
+                statView.findViewById<TextView>(R.id.stat_calories).text = "Kcal: ${parts[5]}"
 
-                val internalKmlName = parts[6] // Το όνομα του κρυφού αρχείου μετατοπίζεται στη θέση 6
+                val internalKmlName = parts[6]
                 val distanceValue = parts[2]
 
                 val exportIcon: ImageButton = statView.findViewById(R.id.export_button)
@@ -49,9 +64,9 @@ class StatsActivity : AppCompatActivity() {
                 }
             }
 
-            // Long Click για διαγραφή
+            // Long Click για διαγραφή χρησιμοποιώντας τον originalIndex
             statView.setOnLongClickListener {
-                showDeleteConfirmationDialog(index)
+                showDeleteConfirmationDialog(originalIndex)
                 true
             }
 
