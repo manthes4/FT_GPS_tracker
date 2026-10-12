@@ -31,20 +31,20 @@ class StatsActivity : AppCompatActivity() {
             val statView = layoutInflater.inflate(R.layout.stat_item, statsContainer, false)
             val parts = stat.split("\\s+".toRegex()).filter { it.isNotEmpty() }
 
-            // ΕΛΕΓΧΟΣ: Πλέον έχουμε 6 μέρη (Ημερομηνία, Χρόνος, Απόσταση, Ταχύτητα, Βήματα, Αρχείο)
-            if (parts.size >= 6) {
+            // ΕΛΕΓΧΟΣ: Πλέον έχουμε 7 μέρη (Ημερομηνία, Χρόνος, Απόσταση, Ταχύτητα, Βήματα, Θερμίδες, Αρχείο)
+            if (parts.size >= 7) {
                 statView.findViewById<TextView>(R.id.stat_date).text = parts[0]
                 statView.findViewById<TextView>(R.id.stat_time).text = "Χρόνος: ${parts[1]}"
                 statView.findViewById<TextView>(R.id.stat_dist).text = "Dist: ${parts[2]} km"
                 statView.findViewById<TextView>(R.id.stat_avg_speed).text = "Avg: ${parts[3]} km/h"
                 statView.findViewById<TextView>(R.id.stat_steps).text = "Steps: ${parts[4]}"
+                statView.findViewById<TextView>(R.id.stat_calories).text ="Kcal: ${parts[5]}"  // Εμφάνιση Θερμίδων (π.χ. 350kcal)
 
-                val internalKmlName = parts[5] // Το όνομα του κρυφού αρχείου (π.χ. route_20260318_1804.kml)
-                val distanceValue = parts[2]   // Η απόσταση (π.χ. 3.25)
+                val internalKmlName = parts[6] // Το όνομα του κρυφού αρχείου μετατοπίζεται στη θέση 6
+                val distanceValue = parts[2]
 
                 val exportIcon: ImageButton = statView.findViewById(R.id.export_button)
                 exportIcon.setOnClickListener {
-                    // Καλούμε τη συνάρτηση στέλνοντας και το όνομα ΚΑΙ την απόσταση
                     copyInternalKmlToPublic(internalKmlName, distanceValue)
                 }
             }

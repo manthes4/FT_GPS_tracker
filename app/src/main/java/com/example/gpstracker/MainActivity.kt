@@ -1288,24 +1288,31 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         isTracking = false
         tvAccuracy.visibility = View.GONE
 
-        // 1. Τελικοί Υπολογισμοί
-        val elapsedTime = (System.currentTimeMillis() - startTime) / 1000
-        val distanceInKm = totalDistance / 1000.0
+        // 1. Τελικοί Υπολογισμοί απευθείας από το Service για απόλυτη ακρίβεια
+        val elapsedTime = if (startTime != 0L) (System.currentTimeMillis() - startTime) / 1000 else 0L
+
+        // Παίρνουμε την απόσταση και τα βήματα απευθείας από το Service
+        val distanceInKm = LocationTrackingService.serviceTotalDistance / 1000.0
         val formattedTime = formatTime(elapsedTime)
-        val formattedDistance = String.format("%.2f", distanceInKm)
+        val formattedDistance = String.format(java.util.Locale.US, "%.2f", distanceInKm)
 
-        // Υπολογισμός μέσης ταχύτητας
-        val finalAvgSpeed = if (elapsedTime > 30) (distanceInKm / (elapsedTime / 3600.0)) else 0.0
-        val formattedAvgSpeed = String.format("%.1f", finalAvgSpeed)
+        // Υπολογισμός μέσης ταχύτητας με βάση τα οριστικά δεδομένα του Service
+        val finalAvgSpeed = if (elapsedTime > 0 && distanceInKm > 0) {
+            (distanceInKm / (elapsedTime / 3600.0))
+        } else {
+            0.0
+        }
+        val formattedAvgSpeed = String.format(java.util.Locale.US, "%.1f", finalAvgSpeed)
 
-        val finalSteps = currentSteps
+        val finalSteps = LocationTrackingService.serviceTotalSteps
         stepCounterManager.stop()
 
-        // --- ΒΗΜΑ 2: ΑΛΛΑΓΗ ΓΙΑ ΤΙΣ ΘΕΡΜΙΔΕΣ ---
-        val finalCalories = tvGrade.text.toString()
+        // Παίρνουμε τις θερμίδες απευθείας από το Service
+        val finalCalories = String.format(java.util.Locale.US, "%.0f kcal", LocationTrackingService.serviceTotalCalories)
 
         saveStats(formattedTime, formattedDistance, formattedAvgSpeed, finalSteps.toString(), finalCalories)
-        // ----------------------------------------
+
+        // ... τα υπόλοιπα (καθαρισμός service, receivers κλπ.) παραμένουν ως έχουν
 
         // 3. Καθαρισμός Service & Receiver
         val intent = Intent(this, LocationTrackingService::class.java)
@@ -1406,9 +1413,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    private fun saveStats(time: String, distance: String, avgSpeed: String, steps: String, calories: String) { // <-- ΠΡΟΣΘΗΚΗ ΠΑΡΑΜΕΤΡΟΥ
+    private fun saveStats(time: String, distance: String, avgSpeed: String, steps: String, calories: String) {
         // Α. Δημιουργούμε το κρυφό KML αρχείο και περνάμε και τις θερμίδες
-        val kmlFileName = saveKmlInternal(time, distance, avgSpeed, steps, calories) // <-- ΠΡΟΣΘΗΚΗ ΕΔΩ
+        val kmlFileName = saveKmlInternal(time, distance, avgSpeed, steps, calories)
 
         // ΑΝ το kmlFileName επέστρεψε το παλιό ή "no_path", σταμάτα εδώ!
         if (kmlFileName == "no_path" || kmlFileName == "error_kml") return
@@ -1419,10 +1426,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // Χρησιμοποιούμε displayDate ίδια με αυτή που μπήκε στο KML για συνέπεια
         val displayDate = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).format(Date())
 
-        // Format: Ημερομηνία Χρόνος Απόσταση Ταχύτητα Βήματα Όνομα_Αρχείου
-        // Σημείωση: Αν θες να αποθηκεύονται οι θερμίδες και στο εσωτερικό ιστορικό (StatsActivity),
-        // μπορείς να τις προσθέσεις στο string, π.χ. μετά τα βήματα.
-        val newStat = "$displayDate $time $distance $avgSpeed $steps $kmlFileName\n"
+        // Καθαρισμός κενών από τις θερμίδες (π.χ. "350 kcal" -> "350kcal")
+        // για να μην επηρεαστεί το split("\\s+") στην StatsActivity
+        val cleanCalories = calories.replace(" ", "")
+
+        // Format: Ημερομηνία Χρόνος Απόσταση Ταχύτητα Βήματα Θερμίδες Όνομα_Αρχείου
+        val newStat = "$displayDate $time $distance $avgSpeed $steps $cleanCalories $kmlFileName\n"
 
         sharedPreferences.edit().putString("stats", stats + newStat).apply()
         Log.d("GPS_TRACKER", "Stats saved with KML: $kmlFileName")

@@ -19,7 +19,7 @@
             android:id="@+id/stat_date"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#F83F05"
+            android:textColor="#03A9F4"
             android:textSize="15sp"
             android:textStyle="bold" />
 
@@ -29,7 +29,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:gravity="center"
-            android:textColor="#FBE104"
+            android:textColor="#03A9F4"
             android:textSize="15sp"
             android:textStyle="bold"
             android:fontFamily="monospace" />
@@ -50,36 +50,52 @@
         android:layout_marginVertical="8dp"
         android:background="#44FFFFFF" />
 
+    <!-- Χρήση LinearLayout με προσαρμοσμένα βάρη (weights) ανά στήλη -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:weightSum="3">
+        android:weightSum="4.0">
 
+        <!-- 1η Στήλη: Απόσταση (μεγαλύτερος χώρος) -->
         <TextView
             android:id="@+id/stat_dist"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
+            android:layout_weight="1.15"
+            android:gravity="left"
             android:textColor="#FFFFFF"
             android:textSize="14sp"
             android:textStyle="bold" />
 
+        <!-- 2η Στήλη: Ταχύτητα (μεγαλύτερος χώρος) -->
         <TextView
             android:id="@+id/stat_avg_speed"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
+            android:layout_weight="1.25"
             android:gravity="center"
             android:textColor="#FFFFFF"
             android:textSize="14sp" />
 
+        <!-- 3η Στήλη: Βήματα (μικρότερος χώρος) -->
         <TextView
             android:id="@+id/stat_steps"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
+            android:layout_weight="0.85"
+            android:gravity="center"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <!-- 4η Στήλη: Θερμίδες (μικρότερος χώρος) -->
+        <TextView
+            android:id="@+id/stat_calories"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="0.75"
             android:gravity="end"
             android:textColor="#FFFFFF"
             android:textSize="14sp"

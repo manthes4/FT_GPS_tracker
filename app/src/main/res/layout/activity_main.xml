@@ -162,7 +162,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="AVG"
-                android:textColor="#00B8D4"
+                android:textColor="#03DCF4"
                 android:textSize="11sp"
                 android:textStyle="bold" />
 
@@ -194,7 +194,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="CALORIES"
-                android:textColor="#07F011"
+                android:textColor="#03DCF4"
                 android:textSize="11sp"
                 android:textStyle="bold" />
             <TextView
@@ -224,7 +224,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="STEPS"
-                android:textColor="#FFAB00"
+                android:textColor="#03DCF4"
                 android:textSize="11sp"
                 android:textStyle="bold" />
 
