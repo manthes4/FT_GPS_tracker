@@ -1670,12 +1670,10 @@ $coords
             val rawCal = parts.getOrNull(4)?.replace("🔥", "")?.trim()
             val finalCal = if (!rawCal.isNullOrEmpty() && rawCal != "-") rawCal else calories
 
-            // 1η Σειρά: Ημερομηνία (Title/Date) & Απόσταση
-            // 2η Σειρά: Χρόνος & Μέση Ταχύτητα
-            // 3η Σειρά: Βήματα & Θερμίδες
-            "$dist &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<br/>" +
-                    "$time &nbsp;&nbsp;&nbsp; $speed km/h &nbsp;&nbsp;<br/>" +
-                    "$steps &nbsp;&nbsp;&nbsp; 🔥 $finalCal"
+            // 2η Σειρά: Απόσταση & Χρόνος
+            // 3η Σειρά: Μέση Ταχύτητα, Βήματα & Θερμίδες
+            "$dist &nbsp;&nbsp;&nbsp; $time &nbsp;&nbsp;<br/>" +
+                    "$speed &nbsp;&nbsp;&nbsp; $steps &nbsp;&nbsp;&nbsp; 🔥 $finalCal"
 
         } catch (e: Exception) {
             kmlDescription
@@ -1897,7 +1895,7 @@ $coords
                 endMarker?.let { map.overlays.remove(it) }
                 greenMarker?.let { map.overlays.remove(it) }
 
-                // Δημιουργία Polyline για περίγραμμα
+                // Δημιουργία Polyline για περίγραμμα γραμμης kml
                 kmlBorderRoute = Polyline().apply {
                     outlinePaint.isAntiAlias = true
                     outlinePaint.color = Color.parseColor("#030100") // 50% transparency
@@ -1907,10 +1905,10 @@ $coords
                     outlinePaint.maskFilter = BlurMaskFilter(10f, BlurMaskFilter.Blur.NORMAL)
                 }
 
-                // Κύρια Polyline
+                // Κύρια Polyline γραμμης kml
                 kmlRoute = Polyline().apply {
                     outlinePaint.isAntiAlias = true
-                    outlinePaint.color = Color.parseColor("#030100")
+                    outlinePaint.color = Color.parseColor("#EDBC24")
                     outlinePaint.strokeWidth = 9.0f
                     outlinePaint.strokeJoin = Paint.Join.ROUND
                     outlinePaint.strokeCap = Paint.Cap.ROUND
