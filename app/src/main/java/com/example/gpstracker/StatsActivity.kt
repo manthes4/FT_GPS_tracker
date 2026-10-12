@@ -49,7 +49,7 @@ class StatsActivity : AppCompatActivity() {
                 }
 
                 statView.findViewById<TextView>(R.id.stat_date).text = formattedDateTime
-                statView.findViewById<TextView>(R.id.stat_time).text = "Χρόνος: ${parts[1]}"
+                statView.findViewById<TextView>(R.id.stat_time).text = "Χρόνος   ${parts[1]}"
                 statView.findViewById<TextView>(R.id.stat_dist).text = "Dist: ${parts[2]} km"
                 statView.findViewById<TextView>(R.id.stat_avg_speed).text = "Avg: ${parts[3]} km/h"
                 statView.findViewById<TextView>(R.id.stat_steps).text = "Steps: ${parts[4]}"

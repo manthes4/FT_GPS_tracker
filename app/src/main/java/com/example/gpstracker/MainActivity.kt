@@ -104,6 +104,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private lateinit var mapEventsOverlay: MapEventsOverlay
 
+    private var parsedKmlTimestamp: String? = null
+
     private var isAutoCenterEnabled = true
 
     private lateinit var tvDistance: TextView
@@ -1308,7 +1310,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         stepCounterManager.stop()
 
         // Παίρνουμε τις θερμίδες απευθείας από το Service
-        val finalCalories = String.format(java.util.Locale.US, "%.0f kcal", LocationTrackingService.serviceTotalCalories)
+        val finalCalories = String.format(java.util.Locale.US, "%.0f", LocationTrackingService.serviceTotalCalories)
 
         saveStats(formattedTime, formattedDistance, formattedAvgSpeed, finalSteps.toString(), finalCalories)
 
@@ -1414,24 +1416,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun saveStats(time: String, distance: String, avgSpeed: String, steps: String, calories: String) {
-        // 1. Δημιουργία timestamp για το KML αρχείο (π.χ. 20261005_112001)
-        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-
-        // 2. Δημιουργία ημερομηνίας και ώρας για το UI ενωμένες με underscore (_)
-        val displayDateTime = SimpleDateFormat("dd/MM/yyyy_HH:mm", Locale.getDefault()).format(Date())
-
-        val kmlFileName = saveKmlInternal(time, distance, avgSpeed, steps, calories, timestamp)
+        // 1. Καλούμε την απλή saveKmlInternal
+        val kmlFileName = saveKmlInternal(time, distance, avgSpeed, steps, calories)
         if (kmlFileName == "no_path" || kmlFileName == "error_kml") return
 
         val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
         val stats = sharedPreferences.getString("stats", "") ?: ""
 
+        // 2. Δημιουργία ημερομηνίας και ώρας για το UI ενωμένες με underscore (π.χ. 05/10/2026_11:20)
+        val displayDateTime = SimpleDateFormat("dd/MM/yyyy_HH:mm", Locale.getDefault()).format(Date())
+
         val cleanCalories = calories.replace(" ", "")
 
-        // Η δομή αποθήκευσης: Ημερομηνία_Ώρα Χρόνος Απόσταση Ταχύτητα Βήματα Θερμίδες Όνομα_Αρχείου
+        // Format αποθήκευσης: Ημερομηνία_Ώρα Χρόνος Απόσταση Ταχύτητα Βήματα Θερμίδες Όνομα_Αρχείου
         val newStat = "$displayDateTime $time $distance $avgSpeed $steps $cleanCalories $kmlFileName\n"
 
         sharedPreferences.edit().putString("stats", stats + newStat).apply()
+        Log.d("GPS_TRACKER", "Stats saved successfully with file: $kmlFileName")
     }
 
     private fun saveKmlInternal(
@@ -1439,11 +1440,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         distance: String,
         avgSpeed: String,
         steps: String,
-        calories: String,
-        timestamp: String
+        calories: String
     ): String {
         if (pathPoints.isEmpty()) return "no_path"
 
+        // Δημιουργία μοναδικού timestamp εντός της συνάρτησης
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         val fileName = "route_$timestamp.kml"
         val coords = pathPoints.joinToString(" ") { "${it.longitude},${it.latitude},0" }
 
@@ -1683,11 +1685,10 @@ $coords
     private fun loadKmlFromFile(file: File) {
         try {
             val inputStream = file.inputStream()
-            val rawFilename = file.nameWithoutExtension // π.χ. route_20261005_112001
+            val rawFilename = file.nameWithoutExtension
             parseKmlFile(inputStream)
             inputStream.close()
 
-            // 1. Ανάγνωση θερμίδων από SharedPreferences
             val sharedPreferences = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
             val statsText = sharedPreferences.getString("stats", "") ?: ""
             var foundCalories = "--"
@@ -1700,35 +1701,18 @@ $coords
                 }
             }
 
-            val kmlDescription = kmlRoute?.snippet ?: kmlGreenMarker?.snippet ?: ""
             val points = kmlRoute?.points
 
             if (points != null && points.isNotEmpty()) {
-                // --- 2. ΔΗΜΙΟΥΡΓΙΑ ΩΡΑΙΑΣ ΗΜΕΡΟΜΗΝΙΑΣ & ΩΡΑΣ ΑΠΟ ΤΟ ΟΝΟΜΑ ΑΡΧΕΙΟΥ ---
-                // Το rawFilename είναι της μορφής route_YYYYMMDD_HHMMSS
-                val cleanName = rawFilename.removePrefix("route_")
-                val dateTimeParts = cleanName.split("_")
-
-                val prettyDateTime = if (dateTimeParts.size >= 2) {
-                    val datePart = dateTimeParts[0] // YYYYMMDD (π.χ. 20261005)
-                    val timePart = dateTimeParts[1] // HHMMSS (π.χ. 112001)
-
-                    val formattedDate = formatKmlDate(datePart) // Μετατροπή σε DD/MM/YYYY
-                    val formattedTime = if (timePart.length >= 6) {
-                        "${timePart.substring(0, 2)}:${timePart.substring(2, 4)}" // HH:MM
-                    } else ""
-
-                    if (formattedTime.isNotEmpty()) "📅 $formattedDate   ⏰ $formattedTime" else "📅 $formattedDate"
-                } else {
-                    "📅 Διαδρομή"
-                }
-                // -------------------------------------------------------------
+                // Χρησιμοποιούμε τον εσωτερικό timestamp αν υπάρχει, αλλιώς το όνομα του αρχείου
+                val sourceForDateTime = parsedKmlTimestamp ?: rawFilename
+                val prettyDateTime = formatPrettyDateTime(sourceForDateTime)
 
                 kmlGreenMarker?.let { marker ->
                     marker.closeInfoWindow()
                     marker.infoWindow = CustomKmlInfoWindow(map)
 
-                    // 3. ΕΠΙΒΟΛΗ ΤΗΣ ΗΜΕΡΟΜΗΝΙΑΣ & ΩΡΑΣ ΣΤΟΝ ΤΙΤΛΟ ΤΟΥ MARKER
+                    // Ορισμός τίτλου με την ημερομηνία και την ώρα
                     marker.title = prettyDateTime
 
                     val rawStats = marker.snippet ?: ""
@@ -1809,6 +1793,30 @@ $coords
         return matchResult?.groups?.get(1)?.value ?: "Unknown"
     }
 
+    private fun formatPrettyDateTime(timestampOrFilename: String): String {
+        return try {
+            val clean = timestampOrFilename.removePrefix("route_").substringBefore(".")
+            val parts = clean.split("_")
+
+            if (parts.size >= 2) {
+                val datePart = parts[0] // π.χ. 20261005
+                val timePart = parts[1] // π.χ. 112001
+                val formattedDate = formatKmlDate(datePart)
+                val formattedTime = if (timePart.length >= 6) {
+                    "${timePart.substring(0, 2)}:${timePart.substring(2, 4)}"
+                } else ""
+
+                if (formattedTime.isNotEmpty()) "📅 $formattedDate   ⏰ $formattedTime" else "📅 $formattedDate"
+            } else if (parts.isNotEmpty() && parts[0].length >= 8) {
+                "📅 ${formatKmlDate(parts[0])}"
+            } else {
+                "📅 Διαδρομή"
+            }
+        } catch (e: Exception) {
+            "📅 Διαδρομή"
+        }
+    }
+
     private fun parseKmlFile(inputStream: InputStream) {
         try {
             val factory = XmlPullParserFactory.newInstance()
@@ -1820,40 +1828,37 @@ $coords
             var inCoordinates = false
             val pathPoints = mutableListOf<GeoPoint>()
 
-            // Για τα στατιστικά
             var time: String? = null
             var distance: String? = null
             var avgSpeed: String? = null
             var steps: String? = null
-            var calories: String? = null // <-- ΠΡΟΣΘΗΚΗ
+            var calories: String? = null
+            parsedKmlTimestamp = null // Μηδενισμός
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
                         when {
                             parser.name.equals("Placemark", true) -> inPlacemark = true
-
-                            inPlacemark && parser.name.equals(
-                                "coordinates",
-                                true
-                            ) -> inCoordinates = true
-
-                            inPlacemark && parser.name.equals("Data", true) -> {
+                            inPlacemark && parser.name.equals("coordinates", true) -> inCoordinates = true
+                            parser.name.equals("Data", true) -> {
                                 val name = parser.getAttributeValue(null, "name")
-                                parser.nextTag() // πάμε στο <value>
+                                parser.nextTag()
                                 if (parser.name.equals("value", true)) {
                                     val value = parser.nextText()
                                     when (name) {
+                                        "timestamp" -> parsedKmlTimestamp = value // <-- ΔΙΑΒΑΣΗ TIMESTAMP
                                         "time" -> time = value
                                         "distance" -> distance = value
                                         "avg_speed" -> avgSpeed = value
                                         "steps" -> steps = value
-                                        "calories" -> calories = value // <-- ΠΡΟΣΘΗΚΗ
+                                        "calories" -> calories = value
                                     }
                                 }
                             }
                         }
                     }
+                    // ... (τα υπόλοιπα tags παραμένουν ως έχουν)
 
                     XmlPullParser.TEXT -> {
                         if (inCoordinates) {
