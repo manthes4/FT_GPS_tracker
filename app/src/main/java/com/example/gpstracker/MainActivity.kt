@@ -412,9 +412,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         compassTouchTarget.setOnClickListener {
             isAutoCenterEnabled = true // Ενεργοποίηση αυτόματου κεντραρίσματος
 
-            val lastPoint = LocationTrackingService.masterPathPoints.lastOrNull()
-            if (lastPoint != null) {
-                map.controller.animateTo(lastPoint)
+            // 1. Δοκιμάζουμε από το τρέχον tracking, αλλιώς από το locationOverlay, αλλιώς από το τελευταίο γνωστό GPS
+            val targetPoint = LocationTrackingService.masterPathPoints.lastOrNull()
+                ?: locationOverlay?.myLocation
+                ?: getLastKnownLocation()?.let { GeoPoint(it.latitude, it.longitude) }
+
+            if (targetPoint != null) {
+                map.controller.animateTo(targetPoint, 18.5, 1000L)
                 Toast.makeText(this, "Κεντράρισμα στη θέση σας", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this, "Αναμονή σήματος GPS...", Toast.LENGTH_SHORT).show()
