@@ -26,6 +26,7 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.widget.Button
 import android.widget.EditText
+import com.example.gpstracker.R
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -288,6 +289,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // 2. Σύνδεση του κουμπιού Clear Map (Σωστά το έβαλες, απλά σιγουρέψου ότι η συνάρτηση είναι η "σαρωτική")
         val btnClearMap = findViewById<android.widget.ImageButton>(R.id.button_clear_map)
         btnClearMap.setOnClickListener {
+            // 🎯 Κλείνει τυχόν ανοιχτό Info Window
+            org.osmdroid.views.overlay.infowindow.InfoWindow.closeAllInfoWindowsOn(map)
+
             clearMapRouting()
         }
 
@@ -668,6 +672,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun togglePOIsVisibility() {
+        // 🎯 Κλείνει τυχόν ανοιχτό Info Window μόλις πατηθεί το κουμπί
+        org.osmdroid.views.overlay.infowindow.InfoWindow.closeAllInfoWindowsOn(map)
+
         if (arePOIsVisible) {
             fetchAndDisplayPOIs() // Fetch and display POIs for the current map center
         } else {
@@ -705,7 +712,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         Log.d("PoiDebug", "Center for 700m radius -> Lat:$lat, Lon:$lon")
 
-        // 🎯 Στοχευμένο query σε ακτίνα 700 μέτρων (χωρίς σχολεία)
+        // 🎯 Στοχευμένο query σε ακτίνα 700 μέτρων (με διευθύνσεις και websites)
         val queryData = """
         [out:json][timeout:25][maxsize:1073741824];
         (
@@ -715,7 +722,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         out body center;
     """.trimIndent()
 
-        // 🎯 Η σειρά των mirrors με προτεραιότητα στον .fr που λειτουργεί καλύτερα
         val mirrors = listOf(
             "https://overpass.openstreetmap.fr/api/interpreter",
             "https://overpass-api.de/api/interpreter",
@@ -735,7 +741,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 Log.e("PoiDebug", "❌ Όλοι οι mirrors απέτυχαν")
                 runOnUiThread {
                     if (pendingPois.isNotEmpty()) {
-                        pendingPois.forEach { addPoiToMap(it.lat, it.lon, it.amenity, it.name) }
+                        pendingPois.forEach {
+                            addPoiToMap(it.lat, it.lon, it.amenity, it.name, it.street, it.houseNumber, it.cuisine, it.phone, it.websiteUrl)
+                        }
                         map.invalidate()
                     }
                     showCustomToast("Αποτυχία φόρτωσης POIs. Δοκιμάστε αργότερα.")
@@ -781,12 +789,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                             Log.i("PoiDebug", "✅ Επιτυχία! ${elements.length()} στοιχεία βρέθηκαν από $currentUrl")
 
                             val seen = HashSet<String>()
-                            var countPharmacy = 0
-                            var countAtm = 0
-                            var countBank = 0
-                            var countRestaurant = 0
-                            var countFastFood = 0
-                            var countCafe = 0
 
                             for (i in 0 until elements.length()) {
                                 val element = elements.getJSONObject(i)
@@ -808,8 +810,23 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                                 var amenity = tags.optString("amenity", "")
                                 val name = tags.optString("name", "Χωρίς όνομα")
                                 val cuisine = tags.optString("cuisine", "")
+
+// 📞 Έλεγχος σε όλα τα πιθανά tags τηλεφώνου για να μη χάνεται καμία επαφή
                                 val phone = tags.optString("phone",
-                                    tags.optString("contact:phone", ""))
+                                    tags.optString("contact:phone",
+                                        tags.optString("contact:mobile",
+                                            tags.optString("mobile", ""))))
+
+// 📍 Έλεγχος διεύθυνσης (συμπεριλαμβανομένου addr:place για χωριά)
+                                val street = tags.optString("addr:street", tags.optString("addr:place", ""))
+                                val houseNumber = tags.optString("addr:housenumber", "")
+
+                                val rawWebsite = tags.optString("website", tags.optString("contact:website", ""))
+                                val website = if (rawWebsite.isNotEmpty() && !rawWebsite.startsWith("http")) {
+                                    "https://$rawWebsite"
+                                } else {
+                                    rawWebsite
+                                }
 
                                 val combined = "$name $cuisine".lowercase()
                                 val isGyrosOrGrill = listOf(
@@ -832,33 +849,47 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                                 val finalAmenity = if (isGyrosOrGrill && amenity != "restaurant")
                                     "fast_food" else amenity
 
-                                when (finalAmenity) {
-                                    "pharmacy" -> countPharmacy++
-                                    "atm" -> countAtm++
-                                    "bank" -> countBank++
-                                    "restaurant" -> countRestaurant++
-                                    "fast_food" -> countFastFood++
-                                    "cafe" -> countCafe++
-                                }
-
                                 val key = "$name|$elementLat|$elementLon"
                                 if (!seen.add(key)) continue
 
-                                val displayName = StringBuilder()
-                                displayName.append(name)
-                                if (cuisine.isNotEmpty()) displayName.append(" | Κουζίνα: $cuisine")
-                                if (phone.isNotEmpty()) displayName.append(" | Τηλ: $phone")
+// 📝 Δημιουργία κειμένου πληροφοριών με σκούρο μπλε link
+                                val infoBuilder = StringBuilder()
 
-                                pendingPois.add(PoiData(elementLat, elementLon, finalAmenity, displayName.toString()))
+                                if (street.isNotEmpty()) {
+                                    infoBuilder.append("📍 Διεύθυνση: $street")
+                                    if (houseNumber.isNotEmpty()) infoBuilder.append(" $houseNumber")
+                                }
+                                if (cuisine.isNotEmpty()) {
+                                    if (infoBuilder.isNotEmpty()) infoBuilder.append("<br>")
+                                    infoBuilder.append("🍽️ Κουζίνα: $cuisine")
+                                }
+                                if (phone.isNotEmpty()) {
+                                    if (infoBuilder.isNotEmpty()) infoBuilder.append("<br>")
+                                    infoBuilder.append("📞 Τηλ: $phone")
+                                }
+                                if (website.isNotEmpty()) {
+                                    if (infoBuilder.isNotEmpty()) infoBuilder.append("<br>")
+                                    infoBuilder.append("🌐 <a href=\"$website\" style=\"color: #F54927;\">Ιστοσελίδα καταστήματος</a>")
+                                }
+
+                                // 📝 Αποθήκευση των raw δεδομένων στο PoiData (χωρίς HTML strings εδώ)
+                                pendingPois.add(PoiData(
+                                    lat = elementLat,
+                                    lon = elementLon,
+                                    amenity = finalAmenity,
+                                    name = name,
+                                    street = street,
+                                    houseNumber = houseNumber,
+                                    cuisine = cuisine,
+                                    phone = phone,
+                                    websiteUrl = website
+                                ))
                             }
 
-                            Log.i("PoiDebug", "📊 Στατιστικά (700m) -> " +
-                                    "Pharmacy: $countPharmacy, ATM: $countAtm, Bank: $countBank, " +
-                                    "Restaurant: $countRestaurant, FastFood: $countFastFood, " +
-                                    "Cafe: $countCafe, Σύνολο: ${pendingPois.size}")
-
                             runOnUiThread {
-                                pendingPois.forEach { addPoiToMap(it.lat, it.lon, it.amenity, it.name) }
+                                pendingPois.forEach {
+                                    addPoiToMap(it.lat, it.lon, it.amenity, it.name, it.street, it.houseNumber, it.cuisine, it.phone, it.websiteUrl)
+                                }
                                 map.invalidate()
                                 showCustomToast("Φορτώθηκαν ${pendingPois.size} σημεία (700μ)")
                             }
@@ -875,9 +906,29 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tryFetch(0)
     }
 
-    data class PoiData(val lat: Double, val lon: Double, val amenity: String, val name: String)
+    data class PoiData(
+        val lat: Double,
+        val lon: Double,
+        val amenity: String,
+        val name: String,
+        val street: String,
+        val houseNumber: String,
+        val cuisine: String,
+        val phone: String,
+        val websiteUrl: String
+    )
 
-    private fun addPoiToMap(lat: Double, lon: Double, amenity: String, name: String) {
+    private fun addPoiToMap(
+        lat: Double,
+        lon: Double,
+        amenity: String,
+        name: String,
+        street: String,
+        houseNumber: String,
+        cuisine: String,
+        phone: String,
+        websiteUrl: String
+    ) {
         if (amenity == "telephone" || amenity == "fountain" || amenity == "school") {
             return
         }
@@ -897,11 +948,93 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             org.osmdroid.views.overlay.Marker.ANCHOR_CENTER,
             org.osmdroid.views.overlay.Marker.ANCHOR_BOTTOM
         )
-        poiMarker.title = "$name ($amenity)"
+
+        poiMarker.title = name
 
         poiMarker.setOnMarkerClickListener { marker, mapView ->
+            org.osmdroid.views.overlay.infowindow.InfoWindow.closeAllInfoWindowsOn(map)
             marker.showInfoWindow()
             true
+        }
+
+        poiMarker.infoWindow = object : org.osmdroid.views.overlay.infowindow.MarkerInfoWindow(org.osmdroid.library.R.layout.bonuspack_bubble, map) {
+            override fun onOpen(item: Any?) {
+                super.onOpen(item)
+
+                // 🌙 1. Σκοτεινό φόντο στη φούσκα (διατηρώντας το σχήμα και το βελάκι)
+                mView.background?.let { bg ->
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        bg.colorFilter = android.graphics.BlendModeColorFilter(
+                            android.graphics.Color.parseColor("#212121"),
+                            android.graphics.BlendMode.SRC_IN
+                        )
+                    } else {
+                        @Suppress("DEPRECATION")
+                        bg.setColorFilter(
+                            android.graphics.Color.parseColor("#212121"),
+                            android.graphics.PorterDuff.Mode.SRC_IN
+                        )
+                    }
+                }
+
+                // 🔤 2. Μεγαλύτερη γραμματοσειρά και λευκό χρώμα στον τίτλο
+                // 🔤 Μεγαλύτερη γραμματοσειρά και Θαλασσί χρώμα στον τίτλο
+                val titleTextView = mView.findViewById<android.widget.TextView>(org.osmdroid.library.R.id.bubble_title)
+                titleTextView?.let {
+                    it.textSize = 17f
+                    it.setTextColor(android.graphics.Color.parseColor("#36D6EB")) // Θαλασσί χρώμα
+                }
+
+                // 📝 3. Δημιουργία περιεχομένου με Spannable (για σωστό link και χρώμα)
+                val descTextView = mView.findViewById<android.widget.TextView>(org.osmdroid.library.R.id.bubble_description)
+                descTextView?.let {
+                    it.textSize = 15f
+                    it.setTextColor(android.graphics.Color.parseColor("#E0E0E0"))
+
+                    val sb = android.text.SpannableStringBuilder()
+
+                    if (street.isNotEmpty()) {
+                        sb.append("📍 Διεύθυνση: $street")
+                        if (houseNumber.isNotEmpty()) sb.append(" $houseNumber")
+                    }
+                    if (cuisine.isNotEmpty()) {
+                        if (sb.isNotEmpty()) sb.append("\n")
+                        sb.append("🍽️ Κουζίνα: $cuisine")
+                    }
+                    if (phone.isNotEmpty()) {
+                        if (sb.isNotEmpty()) sb.append("\n")
+                        sb.append("📞 Τηλ: $phone")
+                    }
+                    if (websiteUrl.isNotEmpty()) {
+                        if (sb.isNotEmpty()) sb.append("\n")
+                        val linkText = "🌐 Ιστοσελίδα καταστήματος"
+                        val start = sb.length
+                        sb.append(linkText)
+                        val end = sb.length
+
+                        // Clickable link με επιλογή εφαρμογής (Intent Chooser)
+                        sb.setSpan(object : android.text.style.ClickableSpan() {
+                            override fun onClick(widget: android.view.View) {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(websiteUrl))
+                                    val chooser = Intent.createChooser(intent, "Επιλογή εφαρμογής")
+                                    map.context.startActivity(chooser)
+                                } catch (e: Exception) {
+                                    Log.e("PoiDebug", "❌ Αποτυχία ανοίγματος link: ${e.message}")
+                                }
+                            }
+                            override fun updateDrawState(ds: android.text.TextPaint) {
+                                super.updateDrawState(ds)
+                                ds.isUnderlineText = true
+                                ds.color = android.graphics.Color.parseColor("#64B5F6") // Φωτεινό μπλε για το dark theme
+                            }
+                        }, start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+
+                    it.text = sb
+                    it.movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                }
+            }
         }
 
         poiMarkers.add(poiMarker)
