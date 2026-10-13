@@ -694,98 +694,179 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun fetchAndDisplayPOIs() {
-        // Clear existing POIs
         poiMarkers.forEach { map.overlays.remove(it) }
         poiMarkers.clear()
 
-        if (!arePOIsVisible) return // Exit if POIs shouldn’t be visible
+        if (!arePOIsVisible) return
 
-        val mapCenter = map.mapCenter
-        val south = mapCenter.latitude - 0.1
-        val west = mapCenter.longitude - 0.1
-        val north = mapCenter.latitude + 0.1
-        val east = mapCenter.longitude + 0.1
+        val center = map.mapCenter
+        val lat = center.latitude
+        val lon = center.longitude
 
-        val queryData = "[out:json];node[amenity]($south,$west,$north,$east);out center;"
+        Log.d("PoiDebug", "Center for 700m radius -> Lat:$lat, Lon:$lon")
 
+        // 🎯 Στοχευμένο query σε ακτίνα 700 μέτρων (χωρίς σχολεία)
+        val queryData = """
+        [out:json][timeout:25][maxsize:1073741824];
+        (
+          nwr(around:700,$lat,$lon)[amenity~"^(restaurant|fast_food|cafe|pharmacy|atm|bank)$"];
+          nwr(around:700,$lat,$lon)[cuisine~"gyros|souvlaki|grill|greek|ψητ|γυρ|σουβλ",i];
+        );
+        out body center;
+    """.trimIndent()
+
+        // 🎯 Η σειρά των mirrors με προτεραιότητα στον .fr που λειτουργεί καλύτερα
         val mirrors = listOf(
+            "https://overpass.openstreetmap.fr/api/interpreter",
             "https://overpass-api.de/api/interpreter",
+            "https://overpass.kumi.systems/api/interpreter",
             "https://overpass.private.coffee/api/interpreter"
         )
 
         val client = OkHttpClient.Builder()
-            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
             .build()
+
+        val pendingPois = mutableListOf<PoiData>()
 
         fun tryFetch(mirrorIndex: Int) {
             if (mirrorIndex >= mirrors.size) {
-                Log.e("Overpass API", "All Overpass mirrors failed.")
-                runOnUiThread { showCustomToast("Αποτυχία φόρτωσης POIs. Δοκιμάστε αργότερα.") }
+                Log.e("PoiDebug", "❌ Όλοι οι mirrors απέτυχαν")
+                runOnUiThread {
+                    if (pendingPois.isNotEmpty()) {
+                        pendingPois.forEach { addPoiToMap(it.lat, it.lon, it.amenity, it.name) }
+                        map.invalidate()
+                    }
+                    showCustomToast("Αποτυχία φόρτωσης POIs. Δοκιμάστε αργότερα.")
+                }
                 return
             }
 
             val currentUrl = mirrors[mirrorIndex]
+            Log.d("PoiDebug", "Mirror [$mirrorIndex]: $currentUrl")
 
-            // Δημιουργία POST Request χωρίς ανάγκη για MediaType imports
             val requestBody = okhttp3.RequestBody.create(null, queryData)
-
             val request = Request.Builder()
                 .url(currentUrl)
                 .post(requestBody)
-                .header("User-Agent", "GPSTrackerApp/1.0 (Android)")
+                .header("User-Agent", "GPSTrackerApp/1.0 (Android; contact: gpstracker.app@gmail.com)")
                 .build()
 
             client.newCall(request).enqueue(object : okhttp3.Callback {
                 override fun onFailure(call: okhttp3.Call, e: IOException) {
-                    Log.w("Overpass API", "Mirror ${mirrors[mirrorIndex]} failed: ${e.message}, trying next...")
+                    Log.w("PoiDebug", "⚠️ Mirror $currentUrl απέτυχε: ${e.message}")
                     tryFetch(mirrorIndex + 1)
                 }
 
                 override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                    val jsonData = response.body?.string()
-                    if (jsonData != null) {
-                        val trimmedData = jsonData.trim()
-                        if (trimmedData.startsWith("<!DOCTYPE", true) || trimmedData.startsWith("<html", true)) {
-                            Log.w("Overpass API", "Mirror ${mirrors[mirrorIndex]} returned HTML (Rate Limit), trying next...")
-                            tryFetch(mirrorIndex + 1)
-                            return
+                    response.use { resp ->
+                        val jsonData = resp.body?.string()
+                        if (jsonData.isNullOrBlank()) {
+                            Log.w("PoiDebug", "⚠️ Κενό response από $currentUrl")
+                            tryFetch(mirrorIndex + 1); return
+                        }
+
+                        val trimmed = jsonData.trim()
+                        if (trimmed.startsWith("<!DOCTYPE", true) ||
+                            trimmed.startsWith("<html", true) ||
+                            trimmed.startsWith("<?xml", true)) {
+                            Log.w("PoiDebug", "⚠️ HTML/XML response, επόμενος mirror")
+                            tryFetch(mirrorIndex + 1); return
                         }
 
                         try {
                             val jsonObject = JSONObject(jsonData)
                             val elements = jsonObject.getJSONArray("elements")
+                            Log.i("PoiDebug", "✅ Επιτυχία! ${elements.length()} στοιχεία βρέθηκαν από $currentUrl")
+
+                            val seen = HashSet<String>()
+                            var countPharmacy = 0
+                            var countAtm = 0
+                            var countBank = 0
+                            var countRestaurant = 0
+                            var countFastFood = 0
+                            var countCafe = 0
 
                             for (i in 0 until elements.length()) {
                                 val element = elements.getJSONObject(i)
 
-                                val lat: Double
-                                val lon: Double
+                                val elementLat: Double
+                                val elementLon: Double
                                 if (element.has("lat") && element.has("lon")) {
-                                    lat = element.getDouble("lat")
-                                    lon = element.getDouble("lon")
+                                    elementLat = element.getDouble("lat")
+                                    elementLon = element.getDouble("lon")
                                 } else if (element.has("center")) {
-                                    val center = element.getJSONObject("center")
-                                    lat = center.getDouble("lat")
-                                    lon = center.getDouble("lon")
+                                    val c = element.getJSONObject("center")
+                                    elementLat = c.getDouble("lat")
+                                    elementLon = c.getDouble("lon")
                                 } else {
                                     continue
                                 }
 
                                 val tags = element.optJSONObject("tags") ?: continue
-                                val amenity = tags.optString("amenity", "")
-                                if (amenity.isEmpty()) continue
+                                var amenity = tags.optString("amenity", "")
+                                val name = tags.optString("name", "Χωρίς όνομα")
+                                val cuisine = tags.optString("cuisine", "")
+                                val phone = tags.optString("phone",
+                                    tags.optString("contact:phone", ""))
 
-                                val name = tags.optString("name", "")
+                                val combined = "$name $cuisine".lowercase()
+                                val isGyrosOrGrill = listOf(
+                                    "gyros", "γυρος", "γύρος",
+                                    "grill", "γκριλ",
+                                    "souvlaki", "σουβλακι", "σουβλάκι",
+                                    "ψητοπωλειο", "ψητοπωλείο", "ψητο", "ψητά",
+                                    "σουβλατζιδικο", "σουβλατζίδικο",
+                                    "καλαμακι", "καλαμάκι"
+                                ).any { combined.contains(it) }
 
-                                runOnUiThread { addPoiToMap(lat, lon, amenity, name) }
+                                if (amenity.isEmpty() && isGyrosOrGrill) {
+                                    amenity = "fast_food"
+                                } else if (amenity.isEmpty()) {
+                                    continue
+                                }
+
+                                if (amenity == "telephone" || amenity == "fountain" || amenity == "school") continue
+
+                                val finalAmenity = if (isGyrosOrGrill && amenity != "restaurant")
+                                    "fast_food" else amenity
+
+                                when (finalAmenity) {
+                                    "pharmacy" -> countPharmacy++
+                                    "atm" -> countAtm++
+                                    "bank" -> countBank++
+                                    "restaurant" -> countRestaurant++
+                                    "fast_food" -> countFastFood++
+                                    "cafe" -> countCafe++
+                                }
+
+                                val key = "$name|$elementLat|$elementLon"
+                                if (!seen.add(key)) continue
+
+                                val displayName = StringBuilder()
+                                displayName.append(name)
+                                if (cuisine.isNotEmpty()) displayName.append(" | Κουζίνα: $cuisine")
+                                if (phone.isNotEmpty()) displayName.append(" | Τηλ: $phone")
+
+                                pendingPois.add(PoiData(elementLat, elementLon, finalAmenity, displayName.toString()))
                             }
+
+                            Log.i("PoiDebug", "📊 Στατιστικά (700m) -> " +
+                                    "Pharmacy: $countPharmacy, ATM: $countAtm, Bank: $countBank, " +
+                                    "Restaurant: $countRestaurant, FastFood: $countFastFood, " +
+                                    "Cafe: $countCafe, Σύνολο: ${pendingPois.size}")
+
+                            runOnUiThread {
+                                pendingPois.forEach { addPoiToMap(it.lat, it.lon, it.amenity, it.name) }
+                                map.invalidate()
+                                showCustomToast("Φορτώθηκαν ${pendingPois.size} σημεία (700μ)")
+                            }
+
                         } catch (e: Exception) {
-                            Log.e("Overpass API", "Failed to parse JSON from mirror ${mirrors[mirrorIndex]}", e)
+                            Log.e("PoiDebug", "❌ Parse error από $currentUrl", e)
                             tryFetch(mirrorIndex + 1)
                         }
-                    } else {
-                        tryFetch(mirrorIndex + 1)
                     }
                 }
             })
@@ -794,22 +875,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tryFetch(0)
     }
 
+    data class PoiData(val lat: Double, val lon: Double, val amenity: String, val name: String)
+
     private fun addPoiToMap(lat: Double, lon: Double, amenity: String, name: String) {
-        // Exclude telephone amenities
-        if (amenity == "telephone" || amenity == "fountain") {
-            return // Don't add a marker for telephones
+        if (amenity == "telephone" || amenity == "fountain" || amenity == "school") {
+            return
         }
         val poiPoint = GeoPoint(lat, lon)
         val poiMarker = org.osmdroid.views.overlay.Marker(map)
         poiMarker.position = poiPoint
 
-        // Customize marker icon based on amenity (example)
         val icon: Drawable? = when (amenity) {
-            "restaurant" -> ContextCompat.getDrawable(this, R.drawable.baseline_restaurant_menu_24)
-            "school" -> ContextCompat.getDrawable(this, R.drawable.baseline_school_24)
+            "restaurant", "fast_food", "cafe" -> ContextCompat.getDrawable(this, R.drawable.baseline_restaurant_menu_24)
             "pharmacy" -> ContextCompat.getDrawable(this, R.drawable.baseline_local_pharmacy_24)
             "atm", "bank" -> ContextCompat.getDrawable(this, R.drawable.baseline_local_atm_24)
-            // ... add more cases for other amenities
             else -> ContextCompat.getDrawable(this, R.drawable.baseline_push_pin_24)
         }
         poiMarker.icon = icon
@@ -819,14 +898,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             org.osmdroid.views.overlay.Marker.ANCHOR_BOTTOM
         )
         poiMarker.title = "$name ($amenity)"
+
         poiMarker.setOnMarkerClickListener { marker, mapView ->
-            showCustomToast(marker.title)
+            marker.showInfoWindow()
             true
         }
 
         poiMarkers.add(poiMarker)
         map.overlays.add(poiMarker)
-        map.invalidate()
     }
 
     private fun showCustomToast(message: String) {
