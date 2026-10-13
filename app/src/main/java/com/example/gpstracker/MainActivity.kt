@@ -794,6 +794,41 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tryFetch(0)
     }
 
+    private fun addPoiToMap(lat: Double, lon: Double, amenity: String, name: String) {
+        // Exclude telephone amenities
+        if (amenity == "telephone" || amenity == "fountain") {
+            return // Don't add a marker for telephones
+        }
+        val poiPoint = GeoPoint(lat, lon)
+        val poiMarker = org.osmdroid.views.overlay.Marker(map)
+        poiMarker.position = poiPoint
+
+        // Customize marker icon based on amenity (example)
+        val icon: Drawable? = when (amenity) {
+            "restaurant" -> ContextCompat.getDrawable(this, R.drawable.baseline_restaurant_menu_24)
+            "school" -> ContextCompat.getDrawable(this, R.drawable.baseline_school_24)
+            "pharmacy" -> ContextCompat.getDrawable(this, R.drawable.baseline_local_pharmacy_24)
+            "atm", "bank" -> ContextCompat.getDrawable(this, R.drawable.baseline_local_atm_24)
+            // ... add more cases for other amenities
+            else -> ContextCompat.getDrawable(this, R.drawable.baseline_push_pin_24)
+        }
+        poiMarker.icon = icon
+
+        poiMarker.setAnchor(
+            org.osmdroid.views.overlay.Marker.ANCHOR_CENTER,
+            org.osmdroid.views.overlay.Marker.ANCHOR_BOTTOM
+        )
+        poiMarker.title = "$name ($amenity)"
+        poiMarker.setOnMarkerClickListener { marker, mapView ->
+            showCustomToast(marker.title)
+            true
+        }
+
+        poiMarkers.add(poiMarker)
+        map.overlays.add(poiMarker)
+        map.invalidate()
+    }
+
     private fun showCustomToast(message: String) {
         val inflater = layoutInflater
         val layout = inflater.inflate(R.layout.custom_toast, null)
@@ -1409,41 +1444,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         map.invalidate()
         showCustomToast("Τερματισμός tracking")
-    }
-
-    private fun addPoiToMap(lat: Double, lon: Double, amenity: String, name: String) {
-        // Exclude telephone amenities
-        if (amenity == "telephone" || amenity == "fountain") {
-            return // Don't add a marker for telephones
-        }
-        val poiPoint = GeoPoint(lat, lon)
-        val poiMarker = org.osmdroid.views.overlay.Marker(map)
-        poiMarker.position = poiPoint
-
-        // Customize marker icon based on amenity (example)
-        val icon: Drawable? = when (amenity) {
-            "restaurant" -> ContextCompat.getDrawable(this, R.drawable.baseline_restaurant_menu_24)
-            "school" -> ContextCompat.getDrawable(this, R.drawable.baseline_school_24)
-            "pharmacy" -> ContextCompat.getDrawable(this, R.drawable.baseline_local_pharmacy_24)
-            "atm", "bank" -> ContextCompat.getDrawable(this, R.drawable.baseline_local_atm_24)
-            // ... add more cases for other amenities
-            else -> ContextCompat.getDrawable(this, R.drawable.baseline_push_pin_24)
-        }
-        poiMarker.icon = icon
-
-        poiMarker.setAnchor(
-            org.osmdroid.views.overlay.Marker.ANCHOR_CENTER,
-            org.osmdroid.views.overlay.Marker.ANCHOR_BOTTOM
-        )
-        poiMarker.title = "$name ($amenity)"
-        poiMarker.setOnMarkerClickListener { marker, mapView ->
-            showCustomToast(marker.title)
-            true
-        }
-
-        poiMarkers.add(poiMarker)
-        map.overlays.add(poiMarker)
-        map.invalidate()
     }
 
     private fun formatTime(seconds: Long): String {
