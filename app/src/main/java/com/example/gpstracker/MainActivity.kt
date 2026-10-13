@@ -714,13 +714,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         // 🎯 Στοχευμένο query σε ακτίνα 700 μέτρων (με διευθύνσεις και websites)
         val queryData = """
-        [out:json][timeout:25][maxsize:1073741824];
-        (
-          nwr(around:700,$lat,$lon)[amenity~"^(restaurant|fast_food|cafe|pharmacy|atm|bank)$"];
-          nwr(around:700,$lat,$lon)[cuisine~"gyros|souvlaki|grill|greek|ψητ|γυρ|σουβλ",i];
-        );
-        out body center;
-    """.trimIndent()
+[out:json][timeout:25][maxsize:1073741824];
+(
+  nwr(around:700,$lat,$lon)[amenity~"^(restaurant|fast_food|cafe|pharmacy|atm|bank)$"];
+  nwr(around:700,$lat,$lon)[cuisine~"gyros|souvlaki|grill|greek|ψητ|γυρ|σουβλ",i];
+);
+out body center qt;
+""".trimIndent()
 
         val mirrors = listOf(
             "https://overpass.openstreetmap.fr/api/interpreter",
@@ -742,7 +742,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 runOnUiThread {
                     if (pendingPois.isNotEmpty()) {
                         pendingPois.forEach {
-                            addPoiToMap(it.lat, it.lon, it.amenity, it.name, it.street, it.houseNumber, it.cuisine, it.phone, it.websiteUrl)
+                            addPoiToMap(
+                                it.lat, it.lon, it.amenity, it.name,
+                                it.street, it.houseNumber,
+                                it.city, it.postcode, it.suburb, it.addrFull,
+                                it.cuisine, it.phone, it.websiteUrl,
+                                it.facebook, it.instagram,
+                                it.operator          // 🆕
+                            )
                         }
                         map.invalidate()
                     }
@@ -808,26 +815,50 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
                                 val tags = element.optJSONObject("tags") ?: continue
                                 var amenity = tags.optString("amenity", "")
-                                val name = tags.optString("name", "Χωρίς όνομα")
-                                val cuisine = tags.optString("cuisine", "")
+                                val name = getFirstTag(tags, "name", "name:el", "name:en", "operator")
+                                    .ifEmpty { "Χωρίς όνομα" }
 
-// 📞 Έλεγχος σε όλα τα πιθανά tags τηλεφώνου για να μη χάνεται καμία επαφή
-                                val phone = tags.optString("phone",
-                                    tags.optString("contact:phone",
-                                        tags.optString("contact:mobile",
-                                            tags.optString("mobile", ""))))
+// 📞 ΤΗΛΕΦΩΝΟ - όλα τα πιθανά tags
+                                val rawPhone = getFirstTag(
+                                    tags,
+                                    "phone", "contact:phone", "contact:phone:1", "phone:1",
+                                    "mobile", "contact:mobile", "contact:mobile:1",
+                                    "telephone",
+                                    "contact:fax",
+                                    "phone:mobile",
+                                    "contact:phone:2",
+                                    "phone:2",
+                                    "contact:mobile:2"
+                                )
+                                val phone = cleanPhone(rawPhone)
 
-// 📍 Έλεγχος διεύθυνσης (συμπεριλαμβανομένου addr:place για χωριά)
-                                val street = tags.optString("addr:street", tags.optString("addr:place", ""))
-                                val houseNumber = tags.optString("addr:housenumber", "")
+// 🆕 Fallback: αν δεν υπάρχει phone, δοκίμασε operator/brand
+                                val operator = getFirstTag(tags, "operator", "brand", "owner")
 
-                                val rawWebsite = tags.optString("website", tags.optString("contact:website", ""))
-                                val website = if (rawWebsite.isNotEmpty() && !rawWebsite.startsWith("http")) {
-                                    "https://$rawWebsite"
-                                } else {
-                                    rawWebsite
-                                }
+// 📍 ΔΙΕΥΘΥΝΣΗ - όλα τα πιθανά tags
+                                val street = getFirstTag(tags, "addr:street", "addr:place", "addr:square")
+                                val houseNumber = getFirstTag(tags, "addr:housenumber")
+                                val city = getFirstTag(tags, "addr:city", "addr:town", "addr:village", "addr:municipality")
+                                val postcode = getFirstTag(tags, "addr:postcode")
+                                val suburb = getFirstTag(tags, "addr:suburb", "addr:neighbourhood")
+                                val addrFull = getFirstTag(tags, "addr:full")  // πλήρης διεύθυνση σε ένα tag
 
+// 🌐 WEBSITE - όλα τα πιθανά tags
+                                val rawWebsite = getFirstTag(
+                                    tags,
+                                    "website", "contact:website", "url", "contact:url",
+                                    "website:official", "website:menu"
+                                )
+                                val website = cleanWebsite(rawWebsite)
+
+// 📱 SOCIAL - αν δεν υπάρχει website, δοκίμασε social
+                                val facebook = cleanSocialUrl(getFirstTag(tags, "contact:facebook", "facebook"), "facebook")
+                                val instagram = cleanSocialUrl(getFirstTag(tags, "contact:instagram", "instagram"), "instagram")
+
+// 🍽️ ΚΟΥΖΙΝΑ
+                                val cuisine = getFirstTag(tags, "cuisine", "cuisine:1", "cuisine:2")
+
+// 🏷️ Υπόλοιπη λογική (amenity, gyros detection, κλπ.)
                                 val combined = "$name $cuisine".lowercase()
                                 val isGyrosOrGrill = listOf(
                                     "gyros", "γυρος", "γύρος",
@@ -852,27 +883,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                                 val key = "$name|$elementLat|$elementLon"
                                 if (!seen.add(key)) continue
 
-// 📝 Δημιουργία κειμένου πληροφοριών με σκούρο μπλε link
-                                val infoBuilder = StringBuilder()
-
-                                if (street.isNotEmpty()) {
-                                    infoBuilder.append("📍 Διεύθυνση: $street")
-                                    if (houseNumber.isNotEmpty()) infoBuilder.append(" $houseNumber")
-                                }
-                                if (cuisine.isNotEmpty()) {
-                                    if (infoBuilder.isNotEmpty()) infoBuilder.append("<br>")
-                                    infoBuilder.append("🍽️ Κουζίνα: $cuisine")
-                                }
-                                if (phone.isNotEmpty()) {
-                                    if (infoBuilder.isNotEmpty()) infoBuilder.append("<br>")
-                                    infoBuilder.append("📞 Τηλ: $phone")
-                                }
-                                if (website.isNotEmpty()) {
-                                    if (infoBuilder.isNotEmpty()) infoBuilder.append("<br>")
-                                    infoBuilder.append("🌐 <a href=\"$website\" style=\"color: #F54927;\">Ιστοσελίδα καταστήματος</a>")
-                                }
-
-                                // 📝 Αποθήκευση των raw δεδομένων στο PoiData (χωρίς HTML strings εδώ)
                                 pendingPois.add(PoiData(
                                     lat = elementLat,
                                     lon = elementLon,
@@ -880,15 +890,29 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                                     name = name,
                                     street = street,
                                     houseNumber = houseNumber,
+                                    city = city,
+                                    postcode = postcode,
+                                    suburb = suburb,
+                                    addrFull = addrFull,
                                     cuisine = cuisine,
                                     phone = phone,
-                                    websiteUrl = website
+                                    websiteUrl = website,
+                                    facebook = facebook,
+                                    instagram = instagram,
+                                    operator = operator
                                 ))
                             }
 
                             runOnUiThread {
                                 pendingPois.forEach {
-                                    addPoiToMap(it.lat, it.lon, it.amenity, it.name, it.street, it.houseNumber, it.cuisine, it.phone, it.websiteUrl)
+                                    addPoiToMap(
+                                        it.lat, it.lon, it.amenity, it.name,
+                                        it.street, it.houseNumber,
+                                        it.city, it.postcode, it.suburb, it.addrFull,
+                                        it.cuisine, it.phone, it.websiteUrl,
+                                        it.facebook, it.instagram,
+                                        it.operator          // 🆕
+                                    )
                                 }
                                 map.invalidate()
                                 showCustomToast("Φορτώθηκαν ${pendingPois.size} σημεία (700μ)")
@@ -913,9 +937,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val name: String,
         val street: String,
         val houseNumber: String,
+        val city: String,
+        val postcode: String,
+        val suburb: String,
+        val addrFull: String,
         val cuisine: String,
         val phone: String,
-        val websiteUrl: String
+        val websiteUrl: String,
+        val facebook: String,
+        val instagram: String,
+        val operator: String   // 🆕
     )
 
     private fun addPoiToMap(
@@ -925,9 +956,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         name: String,
         street: String,
         houseNumber: String,
+        city: String,
+        postcode: String,
+        suburb: String,
+        addrFull: String,
         cuisine: String,
         phone: String,
-        websiteUrl: String
+        websiteUrl: String,
+        facebook: String,
+        instagram: String,
+        operator: String          // 🆕
     ) {
         if (amenity == "telephone" || amenity == "fountain" || amenity == "school") {
             return
@@ -957,11 +995,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             true
         }
 
-        poiMarker.infoWindow = object : org.osmdroid.views.overlay.infowindow.MarkerInfoWindow(org.osmdroid.library.R.layout.bonuspack_bubble, map) {
+        poiMarker.infoWindow = object : org.osmdroid.views.overlay.infowindow.MarkerInfoWindow(
+            org.osmdroid.library.R.layout.bonuspack_bubble, map
+        ) {
             override fun onOpen(item: Any?) {
                 super.onOpen(item)
 
-                // 🌙 1. Σκοτεινό φόντο στη φούσκα (διατηρώντας το σχήμα και το βελάκι)
+                // 🌙 Σκοτεινό φόντο
                 mView.background?.let { bg ->
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
                         bg.colorFilter = android.graphics.BlendModeColorFilter(
@@ -977,68 +1017,224 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     }
                 }
 
-                // 🔤 2. Μεγαλύτερη γραμματοσειρά και λευκό χρώμα στον τίτλο
-                // 🔤 Μεγαλύτερη γραμματοσειρά και Θαλασσί χρώμα στον τίτλο
-                val titleTextView = mView.findViewById<android.widget.TextView>(org.osmdroid.library.R.id.bubble_title)
-                titleTextView?.let {
+                // 🔤 Τίτλος
+                mView.findViewById<android.widget.TextView>(org.osmdroid.library.R.id.bubble_title)?.let {
                     it.textSize = 17f
-                    it.setTextColor(android.graphics.Color.parseColor("#36D6EB")) // Θαλασσί χρώμα
+                    it.setTextColor(android.graphics.Color.parseColor("#4DD0E1"))
                 }
 
-                // 📝 3. Δημιουργία περιεχομένου με Spannable (για σωστό link και χρώμα)
-                val descTextView = mView.findViewById<android.widget.TextView>(org.osmdroid.library.R.id.bubble_description)
-                descTextView?.let {
-                    it.textSize = 15f
-                    it.setTextColor(android.graphics.Color.parseColor("#E0E0E0"))
+                // 📝 Περιεχόμενο
+                mView.findViewById<android.widget.TextView>(org.osmdroid.library.R.id.bubble_description)?.let { tv ->
+                    tv.textSize = 15f
+                    tv.setTextColor(android.graphics.Color.parseColor("#E0E0E0"))
 
                     val sb = android.text.SpannableStringBuilder()
+                    val nl = "\n"
 
-                    if (street.isNotEmpty()) {
-                        sb.append("📍 Διεύθυνση: $street")
-                        if (houseNumber.isNotEmpty()) sb.append(" $houseNumber")
+                    // 📍 ΔΙΕΥΘΥΝΣΗ
+                    val address = buildString {
+                        if (addrFull.isNotEmpty()) {
+                            append(addrFull)
+                        } else {
+                            val parts = mutableListOf<String>()
+                            if (street.isNotEmpty()) {
+                                parts.add(if (houseNumber.isNotEmpty()) "$street $houseNumber" else street)
+                            }
+                            if (suburb.isNotEmpty()) parts.add(suburb)
+                            if (city.isNotEmpty()) parts.add(city)
+                            if (postcode.isNotEmpty()) parts.add(postcode)
+                            append(parts.joinToString(", "))
+                        }
                     }
+                    if (address.isNotEmpty()) {
+                        sb.append("📍 $address")
+                    }
+
+                    // 🍽️ ΚΟΥΖΙΝΑ
                     if (cuisine.isNotEmpty()) {
-                        if (sb.isNotEmpty()) sb.append("\n")
+                        if (sb.isNotEmpty()) sb.append(nl)
                         sb.append("🍽️ Κουζίνα: $cuisine")
                     }
+
+                    // 📞 ΤΗΛΕΦΩΝΟ — clickable για κλήση!
                     if (phone.isNotEmpty()) {
-                        if (sb.isNotEmpty()) sb.append("\n")
-                        sb.append("📞 Τηλ: $phone")
-                    }
-                    if (websiteUrl.isNotEmpty()) {
-                        if (sb.isNotEmpty()) sb.append("\n")
-                        val linkText = "🌐 Ιστοσελίδα καταστήματος"
+                        if (sb.isNotEmpty()) sb.append(nl)
+                        val label = "📞 $phone"
                         val start = sb.length
-                        sb.append(linkText)
+                        sb.append(label)
                         val end = sb.length
 
-                        // Clickable link με επιλογή εφαρμογής (Intent Chooser)
                         sb.setSpan(object : android.text.style.ClickableSpan() {
                             override fun onClick(widget: android.view.View) {
                                 try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(websiteUrl))
-                                    val chooser = Intent.createChooser(intent, "Επιλογή εφαρμογής")
-                                    map.context.startActivity(chooser)
+                                    val cleanForDial = phone.replace(Regex("[^0-9+]"), "")
+                                    val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$cleanForDial"))
+                                    map.context.startActivity(intent)
                                 } catch (e: Exception) {
-                                    Log.e("PoiDebug", "❌ Αποτυχία ανοίγματος link: ${e.message}")
+                                    Log.e("PoiDebug", "❌ Αποτυχία κλήσης: ${e.message}")
                                 }
                             }
                             override fun updateDrawState(ds: android.text.TextPaint) {
                                 super.updateDrawState(ds)
                                 ds.isUnderlineText = true
-                                ds.color = android.graphics.Color.parseColor("#64B5F6") // Φωτεινό μπλε για το dark theme
+                                ds.color = android.graphics.Color.parseColor("#81C784")
                             }
                         }, start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                     }
 
-                    it.text = sb
-                    it.movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                    // 🌐 WEBSITE
+                    if (websiteUrl.isNotEmpty()) {
+                        if (sb.isNotEmpty()) sb.append(nl)
+                        val label = "🌐 Ιστοσελίδα"
+                        val start = sb.length
+                        sb.append(label)
+                        val end = sb.length
+
+                        sb.setSpan(object : android.text.style.ClickableSpan() {
+                            override fun onClick(widget: android.view.View) {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(websiteUrl))
+                                    map.context.startActivity(Intent.createChooser(intent, "Άνοιγμα με"))
+                                } catch (e: Exception) {
+                                    Log.e("PoiDebug", "❌ Αποτυχία ανοίγματος website: ${e.message}")
+                                    // Fallback: Google search
+                                    val fallback = Intent(Intent.ACTION_VIEW,
+                                        Uri.parse("https://www.google.com/search?q=${Uri.encode(name + " " + address)}"))
+                                    map.context.startActivity(fallback)
+                                }
+                            }
+                            override fun updateDrawState(ds: android.text.TextPaint) {
+                                super.updateDrawState(ds)
+                                ds.isUnderlineText = true
+                                ds.color = android.graphics.Color.parseColor("#64B5F6")
+                            }
+                        }, start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+
+                    // 📱 FACEBOOK
+                    if (facebook.isNotEmpty()) {
+                        if (sb.isNotEmpty()) sb.append(nl)
+                        val label = "📘 Facebook"
+                        val start = sb.length
+                        sb.append(label)
+                        val end = sb.length
+
+                        sb.setSpan(object : android.text.style.ClickableSpan() {
+                            override fun onClick(widget: android.view.View) {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(facebook))
+                                    map.context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Log.e("PoiDebug", "❌ Αποτυχία ανοίγματος Facebook: ${e.message}")
+                                }
+                            }
+                            override fun updateDrawState(ds: android.text.TextPaint) {
+                                super.updateDrawState(ds)
+                                ds.isUnderlineText = true
+                                ds.color = android.graphics.Color.parseColor("#42A5F5")
+                            }
+                        }, start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+
+                    // 📷 INSTAGRAM
+                    if (instagram.isNotEmpty()) {
+                        if (sb.isNotEmpty()) sb.append(nl)
+                        val label = "📷 Instagram"
+                        val start = sb.length
+                        sb.append(label)
+                        val end = sb.length
+
+                        sb.setSpan(object : android.text.style.ClickableSpan() {
+                            override fun onClick(widget: android.view.View) {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(instagram))
+                                    map.context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Log.e("PoiDebug", "❌ Αποτυχία ανοίγματος Instagram: ${e.message}")
+                                }
+                            }
+                            override fun updateDrawState(ds: android.text.TextPaint) {
+                                super.updateDrawState(ds)
+                                ds.isUnderlineText = true
+                                ds.color = android.graphics.Color.parseColor("#E91E63")
+                            }
+                        }, start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+
+                    // 🏢 OPERATOR (αν δεν υπάρχει phone)
+                    if (phone.isEmpty() && operator.isNotEmpty()) {
+                        if (sb.isNotEmpty()) sb.append(nl)
+                        sb.append("🏢 $operator")
+                    }
+
+                    tv.text = sb
+                    tv.movementMethod = android.text.method.LinkMovementMethod.getInstance()
                 }
             }
         }
 
         poiMarkers.add(poiMarker)
         map.overlays.add(poiMarker)
+    }
+
+    /**
+     * Επιστρέφει το πρώτο μη-κενό tag από μια λίστα υποψηφίων.
+     */
+    private fun getFirstTag(tags: JSONObject, vararg keys: String): String {
+        for (key in keys) {
+            val value = tags.optString(key, "").trim()
+            if (value.isNotEmpty()) return value
+        }
+        return ""
+    }
+
+    /**
+     * Καθαρίζει τηλέφωνο: αφαιρεί "tel:", κενά στα άκρα, διπλά τηλέφωνα.
+     */
+    private fun cleanPhone(raw: String): String {
+        var p = raw.trim()
+            .removePrefix("tel:")
+            .removePrefix("Tel:")
+            .removePrefix("TEL:")
+            .trim()
+
+        // Αν έχει πολλά τηλέφωνα χωρισμένα με ; ή , κρατάμε τα 2 πρώτα
+        val parts = p.split(";", ",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+
+        return if (parts.size > 1) {
+            parts.take(2).joinToString(" / ")
+        } else {
+            parts.firstOrNull() ?: ""
+        }
+    }
+
+    /**
+     * Καθαρίζει website: προσθέτει https:// αν λείπει, αφαιρεί trailing slash.
+     */
+    private fun cleanWebsite(raw: String): String {
+        var w = raw.trim()
+        if (w.isEmpty()) return ""
+        if (!w.startsWith("http://") && !w.startsWith("https://")) {
+            w = "https://$w"
+        }
+        return w
+    }
+
+    /**
+     * Μετατρέπει facebook/instagram username σε URL αν χρειάζεται.
+     */
+    private fun cleanSocialUrl(raw: String, platform: String): String {
+        var s = raw.trim()
+        if (s.isEmpty()) return ""
+        if (s.startsWith("http://") || s.startsWith("https://")) return s
+        // Αν είναι σκέτο username
+        return when (platform) {
+            "facebook" -> "https://www.facebook.com/$s"
+            "instagram" -> "https://www.instagram.com/$s"
+            else -> "https://$s"
+        }
     }
 
     private fun showCustomToast(message: String) {
