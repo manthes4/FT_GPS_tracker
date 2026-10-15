@@ -97,6 +97,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var hasZoomedToTracking = false
     private var elapsedTimeInSeconds = 0L // Κρατάει τα δευτερόλεπτα της διαδρομής
 
+    //υψομετρο
+    private var smoothedAltitude: Double = 0.0
+    private var isFirstAltitude = true
+
     private var currentSearchMarker: Marker? = null
     private val navigationSteps = mutableListOf<NavigationStep>()
 
@@ -435,6 +439,25 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         checkPermissionsAndZoomToLocation()
 
+// 🎯 Έναρξη λήψης σηματός GPS με το που ανοίγει η εφαρμογή
+        try {
+            locationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                1000L, // Κάθε 1 δευτερόλεπτο
+                1f,    // Ή κάθε 1 μέτρο μετακίνησης
+                mainLocationListener
+            )
+            // Αν θέλεις να πιάνει και δικτυακό σήμα (για πιο γρήγορο αρχικό κλείδωμα σε εσωτερικούς χώρους):
+            locationManager.requestLocationUpdates(
+                LocationManager.NETWORK_PROVIDER,
+                1000L,
+                1f,
+                mainLocationListener
+            )
+        } catch (e: SecurityException) {
+            Log.e("PoiDebug", "Σφάλμα δικαιωμάτων GPS: ${e.message}")
+        }
+
         startButton.setOnClickListener {
             if (!isTracking) {
                 // 1. Αν ξεκινάει τώρα η καταγραφή, τρέχουμε τη startTracking
@@ -621,12 +644,49 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     override fun onDestroy() {
+        // 🎯 Σταματάμε τη λήψη GPS για να μην καταναλώνει μπαταρία στο κλείσιμο
+        try {
+            locationManager.removeUpdates(mainLocationListener)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         // Καθαρισμός για να μην "κολλάει" το TTS engine σε επόμενες εκτελέσεις
         tts?.let {
             it.stop()
             it.shutdown()
         }
         super.onDestroy()
+    }
+
+    private val mainLocationListener = object : android.location.LocationListener {
+        override fun onLocationChanged(location: android.location.Location) {
+            // Ενημέρωση υψομέτρου σε πραγματικό χρόνο
+            if (location.hasAltitude()) {
+                // 1. Αφαιρούμε ~35μ. (Geoid Offset Ελλάδας) για να έρθει κοντά στα πραγματικά μέτρα
+                val rawAltitude = location.altitude - 41.0
+
+                if (isFirstAltitude) {
+                    smoothedAltitude = rawAltitude
+                    isFirstAltitude = false
+                } else {
+                    // 2. Φίλτρο εξομάλυνσης: 85% η προηγούμενη τιμή, 15% η νέα (κόβει τα απότομα πηδήματα)
+                    smoothedAltitude = smoothedAltitude * 0.85 + rawAltitude * 0.15
+                }
+
+                tvAltitude.text = String.format("Υψόμετρο: %.1fm", smoothedAltitude)
+            }
+
+            // Ενημέρωση ακρίβειας GPS σε πραγματικό χρόνο
+            val accuracy = location.accuracy
+            tvAccuracy.text = "Accuracy GPS: ${String.format("%.1f", accuracy)}m"
+            tvAccuracy.setTextColor(if (accuracy > 20) Color.RED else Color.parseColor("#006400"))
+        }
+
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
+        @Deprecated("Deprecated in Java")
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
     }
 
     private fun createNotificationChannel() {
