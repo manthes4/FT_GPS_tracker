@@ -194,6 +194,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var plannedRoutePoints: ArrayList<GeoPoint> = ArrayList()
 
     private var trackingOverlay: Polyline? = null  // <-- Προσθέστε αυτή τη γραμμή
+    private lateinit var tvAltitude: android.widget.TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -233,6 +234,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tvAvgSpeed = findViewById(R.id.tv_avg_speed)
         tvSteps = findViewById(R.id.tv_steps)
         tvAccuracy = findViewById(R.id.tv_accuracy)
+        tvAltitude = findViewById<android.widget.TextView>(R.id.tv_altitude)
         tvGrade = findViewById(R.id.tv_grade)
         tvCurrentGrade = findViewById(R.id.tvCurrentGrade)
         statsContainer = findViewById(R.id.stats_container)
@@ -1480,6 +1482,7 @@ out body center qt;
 
                 currentSpeed = intent.getFloatExtra("current_speed", 0f)
                 val accuracy = intent.getFloatExtra("accuracy", 0f)
+                val altitude = intent.getDoubleExtra("altitude", 0.0) // 🏔️ Ανάγνωση υψομέτρου
                 val roadGrade = intent.getDoubleExtra("grade", 0.0)
                 val deviceGrade = intent.getDoubleExtra("device_pitch", 0.0)
                 val bearing = intent.getFloatExtra("bearing", 0f)
@@ -1515,6 +1518,9 @@ out body center qt;
                 // Accuracy UI
                 tvAccuracy.text = "Accuracy GPS: ${String.format("%.1f", accuracy)}m"
                 tvAccuracy.setTextColor(if (accuracy > 20) Color.RED else Color.parseColor("#006400"))
+
+                // 🏔️ Υψόμετρο UI
+                tvAltitude.text = String.format("Υψόμετρο: %.1fm", altitude)
 
                 // Λογική Zoom & Marker
                 if (isTracking && !hasZoomedToTracking) {

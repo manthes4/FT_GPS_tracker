@@ -399,6 +399,7 @@ class LocationTrackingService : Service(), SensorEventListener {
             putExtra("distance", totalDistance)
             putExtra("current_speed", currentSpeedKmH)
             putExtra("accuracy", location.accuracy)
+            putExtra("altitude", location.altitude) // 👈 Υπάρχει αυτή η γραμμή στον Service σου;
             putExtra("bearing", location.bearing)
             putExtra("calories", serviceTotalCalories) // Στέλνει τις ενημερωμένες θερμίδες στο UI
             putExtra("steps", currentSteps)
