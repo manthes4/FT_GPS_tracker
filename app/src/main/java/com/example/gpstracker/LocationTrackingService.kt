@@ -32,6 +32,8 @@ class LocationTrackingService : Service(), SensorEventListener {
         var serviceTotalSteps = 0
         var serviceTotalCalories = 0.0
         var isServicePaused = false
+        var isTrackingActive = false // 👈 Νέα σημαία για να ξέρουμε αν τρέχει
+        var serviceStartTime = 0L // 👈 Νέα μεταβλητή για να θυμόμαστε πότε ξεκίνησε ακριβώς
     }
 
     private lateinit var locationManager: LocationManager
@@ -229,6 +231,8 @@ class LocationTrackingService : Service(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        Log.d("TRACKING_DEBUG", "🚀 LocationTrackingService: onStartCommand κλήθηκε!")
+        isTrackingActive = true // 👈 Ενεργοποίηση σημαίας
         // Μηδενισμός δεδομένων για τη νέα διαδρομή
         totalDistance = 0f
         currentGrade = 0.0
@@ -240,6 +244,7 @@ class LocationTrackingService : Service(), SensorEventListener {
         serviceTotalCalories = 0.0 // <-- Μηδενισμός θερμίδων στην έναρξη
 
         startTime = System.currentTimeMillis()
+        serviceStartTime = startTime // 👈 Αποθηκεύουμε τον χρόνο έναρξης εδώ
         statsHandler.post(statsRunnable)
 
         startForegroundService()
@@ -262,6 +267,17 @@ class LocationTrackingService : Service(), SensorEventListener {
     private fun updateNotification(distanceMeters: Float, timeSeconds: Long) {
         val channelId = "GPS_Tracking_Service_Channel"
 
+        // 1. Δημιουργία του Intent για να ανοίγει η MainActivity
+        val notificationIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            notificationIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val h = timeSeconds / 3600
         val m = (timeSeconds % 3600) / 60
         val s = timeSeconds % 60
@@ -277,6 +293,7 @@ class LocationTrackingService : Service(), SensorEventListener {
             .setContentText("$line1  |  $line2")
             .setStyle(NotificationCompat.BigTextStyle().bigText("$line1\n$line2"))
             .setSmallIcon(R.drawable.ic_location)
+            .setContentIntent(pendingIntent) // 👈 ΕΔΩ ΜΠΑΙΝΕΙ ΤΟ CLICK ΠΟΥ ΦΕΡΝΕΙ ΤΗΝ APP ΜΠΡΟΣΤΑ
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -425,6 +442,8 @@ class LocationTrackingService : Service(), SensorEventListener {
 
     override fun onDestroy() {
         super.onDestroy()
+        Log.d("TRACKING_DEBUG", "🛑 LocationTrackingService: onDestroy κλήθηκε!")
+        isTrackingActive = false // 👈 Απενεργοποίηση σημαίας
         locationManager.removeUpdates(locationListener)
         statsHandler.removeCallbacks(statsRunnable)
         sensorManager.unregisterListener(this)
