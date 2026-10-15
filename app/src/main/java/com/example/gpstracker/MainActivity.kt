@@ -531,20 +531,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             fetchAndDisplayPOIs()
         }
 
-        // --- ΕΛΕΓΧΟΣ ΕΠΑΝΑΦΟΡΑΣ (Restore State) ---
-        Log.d("TRACKING_DEBUG", "🔍 Έλεγχος επαναφοράς. Service active: ${LocationTrackingService.isTrackingActive}, savedInstanceState: ${savedInstanceState != null}")
-
         if (savedInstanceState != null) {
             isTracking = savedInstanceState.getBoolean("isTracking", false)
             totalDistance = savedInstanceState.getFloat("totalDistance", 0f)
             startTime = savedInstanceState.getLong("startTime", 0)
-        }
-
-        // Είτε υπήρχε savedInstanceState είτε όχι, αν το Service τρέχει πραγματικά, κάνουμε restore!
-        if (LocationTrackingService.isTrackingActive) {
-            Log.d("TRACKING_DEBUG", "🔄 Το Service τρέχει ενεργά! Εκτέλεση startTracking(isRestoring = true)")
-            isTracking = true
-            startTracking(isRestoring = true)
+            if (isTracking) {
+                startTracking()
+            }
         }
 
         // Έλεγχος αν η εφαρμογή άνοιξε από εξωτερικό αρχείο (File Manager)
@@ -1396,81 +1389,67 @@ out body center qt;
         }
     }
 
-    private fun startTracking(isRestoring: Boolean = false) {
+    private fun startTracking() {
         if (ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
             ) != PackageManager.PERMISSION_GRANTED
         ) return
 
-        // 1. ΚΑΘΑΡΙΣΜΟΣ ΧΑΡΤΗ ΚΑΙ ΜΝΗΜΗΣ (Μόνο αν ΔΕΝ κάνουμε restore)
-        if (!isRestoring) {
-            val sharedPrefs = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
-            sharedPrefs.edit().remove("route_data").apply()
+        // 1. ΚΑΘΑΡΙΣΜΟΣ ΧΑΡΤΗ ΚΑΙ ΜΝΗΜΗΣ (ΔΙΑΤΗΡΩΝΤΑΣ ΤΗ ΣΧΕΔΙΑΣΜΕΝΗ ΔΙΑΔΡΟΜΗ)
 
-            // Κλείνουμε InfoWindows μόνο αν ΔΕΝ ανήκουν στη σχεδιασμένη διαδρομή
-            for (overlay in map.overlays.toList()) {
-                if (overlay is Marker && overlay != currentSearchMarker && overlay != endMarker) {
-                    overlay.closeInfoWindow()
-                }
-            }
+        val sharedPrefs = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
+        sharedPrefs.edit().remove("route_data").apply()
 
-            // Καθαρίζουμε μόνο τα συγκεκριμένα overlays καταγραφής/KML
-            kmlRoute?.let { map.overlays.remove(it); kmlRoute = null }
-            kmlBorderRoute?.let { map.overlays.remove(it); kmlBorderRoute = null }
-            route?.let { map.overlays.remove(it); route = null }
-            borderRoute?.let { map.overlays.remove(it); borderRoute = null }
-            startMarker?.let { map.overlays.remove(it) }
-            kmlGreenMarker?.let { map.overlays.remove(it) }
-            kmlPurpleMarker?.let { map.overlays.remove(it) }
-            initialLocationMarker?.let { map.overlays.remove(it) }
-            initialLocationMarker = null
-
-            startMarker = null
-            kmlGreenMarker = null
-            kmlPurpleMarker = null
-            lastLocation = null
-            isTracking = true
-            hasZoomedToTracking = false
-            totalDistance = 0f
-            currentSpeed = 0f
-            startTime = System.currentTimeMillis()
-            pathPoints.clear() // Καθαρισμός μόνο των σημείων της ΝΕΑΣ καταγραφής
-
-            currentLocationMarker?.let { map.overlays.remove(it) }
-            currentLocationMarker = null
-
-            // Μηδενισμός θερμίδων στη μνήμη του Service
-            LocationTrackingService.serviceTotalCalories = 0.0
-
-            tvGrade.text = "0 kcal"
-            tvGrade.setTextColor(Color.WHITE)
-            tvDistance.text = "0.00 km"
-
-            elapsedTimeInSeconds = 0L
-
-            tvTime.text = "00:00:00"
-            tvAvgSpeed.text = "0.0"
-            tvSteps.text = "0"
-        } else {
-            // 🔄 Επαναφορά δεδομένων από το Service κατά το restore
-            isTracking = true
-            hasZoomedToTracking = false
-            totalDistance = LocationTrackingService.serviceTotalDistance
-            currentSteps = LocationTrackingService.serviceTotalSteps
-            pathPoints.clear()
-            pathPoints.addAll(LocationTrackingService.masterPathPoints)
-
-            // 👈 ΕΔΩ ΕΙΣΑΙ: Παίρνουμε τον πραγματικό χρόνο έναρξης από το Service
-            startTime = LocationTrackingService.serviceStartTime
-            if (startTime != 0L) {
-                elapsedTimeInSeconds = (System.currentTimeMillis() - startTime) / 1000
+        // Κλείνουμε InfoWindows μόνο αν ΔΕΝ ανήκουν στη σχεδιασμένη διαδρομή
+        for (overlay in map.overlays.toList()) {
+            if (overlay is Marker && overlay != currentSearchMarker && overlay != endMarker) {
+                overlay.closeInfoWindow()
             }
         }
+
+        // Καθαρίζουμε μόνο τα συγκεκριμένα overlays καταγραφής/KML
+        kmlRoute?.let { map.overlays.remove(it); kmlRoute = null }
+        kmlBorderRoute?.let { map.overlays.remove(it); kmlBorderRoute = null }
+        route?.let { map.overlays.remove(it); route = null }
+        borderRoute?.let { map.overlays.remove(it); borderRoute = null }
+        startMarker?.let { map.overlays.remove(it) }
+        kmlGreenMarker?.let { map.overlays.remove(it) }
+        kmlPurpleMarker?.let { map.overlays.remove(it) }
+        initialLocationMarker?.let { map.overlays.remove(it) }
+        initialLocationMarker = null
+
+        startMarker = null
+        kmlGreenMarker = null
+        kmlPurpleMarker = null
+        lastLocation = null
+        isTracking = true
+        hasZoomedToTracking = false
+        totalDistance = 0f
+        currentSpeed = 0f
+        startTime = System.currentTimeMillis()
+        pathPoints.clear() // Καθαρισμός μόνο των σημείων της ΝΕΑΣ καταγραφής
+
+        currentLocationMarker?.let { map.overlays.remove(it) }
+        currentLocationMarker = null
+
+        // Μηδενισμός θερμίδων στη μνήμη του Service
+        LocationTrackingService.serviceTotalCalories = 0.0
+
+        tvGrade.text = "0 kcal"
+        tvGrade.setTextColor(Color.WHITE)
+        tvDistance.text = "0.00 km"
+
+        elapsedTimeInSeconds = 0L
+
+        tvTime.text = "00:00:00"
+        tvAvgSpeed.text = "0.0"
+        tvSteps.text = "0"
 
         map.invalidate()
 
         // 2. ΔΗΜΙΟΥΡΓΙΑ POLYLINES ΚΑΤΑΓΡΑΦΗΣ (Glow Style)
+        // Μαύρο περίγραμμα
         borderRoute = Polyline().apply {
             outlinePaint.color = Color.parseColor("#030100")
             outlinePaint.strokeWidth = 17.0f
@@ -1479,6 +1458,7 @@ out body center qt;
             outlinePaint.isAntiAlias = true
         }
 
+        // Κύρια ΚΟΚΚΙΝΗ γραμμή καταγραφής περπατήματος
         route = Polyline().apply {
             outlinePaint.color = Color.parseColor("#E60000")
             outlinePaint.strokeWidth = 9.0f
@@ -1487,30 +1467,25 @@ out body center qt;
             outlinePaint.isAntiAlias = true
         }
 
-        // Αν κάνουμε restore, περνάμε τα σημεία που ήδη έχουν καταγραφεί στη γραμμή
-        if (pathPoints.isNotEmpty()) {
-            borderRoute?.setPoints(pathPoints)
-            route?.setPoints(pathPoints)
-        }
-
+        // 🎯 Προσθήκη των Overlays καταγραφής στο τέλος της λίστας
+        // ώστε να σχεδιάζονται ΠΑΝΩ από οποιαδήποτε προσχεδιασμένη διαδρομή
         map.overlays.add(borderRoute)
         map.overlays.add(route)
+
         map.invalidate()
 
         // 3. ΕΚΚΙΝΗΣΗ SERVICE & ΦΩΝΗΤΙΚΗ ΕΙΔΟΠΟΙΗΣΗ
-        if (!isRestoring) {
-            val intent = Intent(this, LocationTrackingService::class.java)
-            ContextCompat.startForegroundService(this, intent)
+        val intent = Intent(this, LocationTrackingService::class.java)
+        ContextCompat.startForegroundService(this, intent)
 
-            currentSteps = 0
-            showCustomToast("Tracking started")
-        } else {
-            currentSteps = LocationTrackingService.serviceTotalSteps
-        }
-
+        currentSteps = 0
         stepCounterManager.start()
 
+        showCustomToast("Tracking started")
+        updateNotification("Tracking started")
+
         // 4. ΕΝΗΜΕΡΩΣΗ UI
+// 4. ΕΝΗΜΕΡΩΣΗ UI
         updateStatsRunnable = object : Runnable {
             override fun run() {
                 if (isTracking) {
@@ -1528,11 +1503,13 @@ out body center qt;
                     val distanceInKm = totalDistance / 1000.0
                     val avgSpeed = if (elapsedTimeInSeconds > 0) (distanceInKm / elapsedTimeInSeconds) * 3600 else 0.0
 
+                    // --- ΔΙΟΡΘΩΣΗ ΕΔΩ ΓΙΑ ΜΕΤΡΑ / ΧΙΛΙΟΜΕΤΡΑ ---
                     if (totalDistance < 1000f) {
                         tvDistance.text = String.format("%.0f m", totalDistance)
                     } else {
                         tvDistance.text = String.format("%.2f km", distanceInKm)
                     }
+                    // ------------------------------------------
 
                     tvTime.text = formatTime(elapsedTimeInSeconds)
                     tvCurrentSpeed.text = String.format("%.1f", currentSpeed)
@@ -1545,18 +1522,12 @@ out body center qt;
         handler.post(updateStatsRunnable)
 
         // 5. ΕΓΓΡΑΦΗ ΤΟΥ RECEIVER
-        try {
-            unregisterReceiver(locationReceiver)
-        } catch (e: Exception) {
-            // Αγνοούμε αν δεν ήταν εγγεγραμμένος
-        }
-
         val filter = IntentFilter("LocationUpdate")
-        ContextCompat.registerReceiver(
+        androidx.core.content.ContextCompat.registerReceiver(
             this,
             locationReceiver,
             filter,
-            ContextCompat.RECEIVER_NOT_EXPORTED
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
         )
     }
 
@@ -2520,6 +2491,30 @@ $coords
             showCustomToast("Failed to parse KML file")
         }
     }
+
+    private fun updateNotification(message: String) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_location)
+            .setContentTitle("GPS Tracker")
+            .setContentText(message)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+
+        val notificationManager =
+            getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(1, notificationBuilder.build())
+    }
+
     data class SearchResult(
         val shortName: String,
         val lat: Double,
@@ -3021,10 +3016,6 @@ $coords
         if (LocationTrackingService.masterPathPoints.isNotEmpty()) {
             pathPoints.clear()
             pathPoints.addAll(LocationTrackingService.masterPathPoints)
-
-            // 👈 ΠΡΟΣΘΕΣΕ ΑΥΤΕΣ ΤΙΣ ΔΥΟ ΓΡΑΜΜΕΣ ΕΔΩ:
-            totalDistance = LocationTrackingService.serviceTotalDistance
-            currentSteps = LocationTrackingService.serviceTotalSteps
 
             if (trackingOverlay == null) {
                 trackingOverlay = Polyline(map)
