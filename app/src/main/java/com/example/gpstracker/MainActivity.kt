@@ -1542,7 +1542,16 @@ out body center qt;
 
                 currentSpeed = intent.getFloatExtra("current_speed", 0f)
                 val accuracy = intent.getFloatExtra("accuracy", 0f)
-                val altitude = intent.getDoubleExtra("altitude", 0.0) // 🏔️ Ανάγνωση υψομέτρου
+
+// 🏔️ Διόρθωση υψομέτρου (Geoid Offset & Smoothing)
+                val rawAltitude = intent.getDoubleExtra("altitude", 0.0) - 41.0
+                if (isFirstAltitude) {
+                    smoothedAltitude = rawAltitude
+                    isFirstAltitude = false
+                } else {
+                    smoothedAltitude = smoothedAltitude * 0.85 + rawAltitude * 0.15
+                }
+
                 val roadGrade = intent.getDoubleExtra("grade", 0.0)
                 val deviceGrade = intent.getDoubleExtra("device_pitch", 0.0)
                 val bearing = intent.getFloatExtra("bearing", 0f)
@@ -1580,7 +1589,7 @@ out body center qt;
                 tvAccuracy.setTextColor(if (accuracy > 20) Color.RED else Color.parseColor("#006400"))
 
                 // 🏔️ Υψόμετρο UI
-                tvAltitude.text = String.format("Υψόμετρο: %.1fm", altitude)
+                tvAltitude.text = String.format("Υψόμετρο: %.1fm", smoothedAltitude)
 
                 // Λογική Zoom & Marker
                 if (isTracking && !hasZoomedToTracking) {
@@ -1591,13 +1600,16 @@ out body center qt;
                 }
                 updateCurrentLocationMarker(newPoint, bearing)
 
-                // Κλίση Συσκευής
+// 🎯 Κλίση Εδάφους (αντί για κλίση συσκευής)
                 tvCurrentGrade.visibility = View.VISIBLE
-                tvCurrentGrade.text = "Κλίση σημείου: ${String.format("%.1f", deviceGrade)}%"
+                //βαζουμε 0.1 για να δειχνει και την παραμικρη κλιση και να μην αλλαζει συνεχως αλλα βαζουμε 0.5
+                val displayGrade = if (Math.abs(roadGrade) < 0.1) 0.0 else roadGrade
+                tvCurrentGrade.text = "Κλίση εδάφους: ${String.format("%.1f", displayGrade)}%"
+
                 when {
-                    deviceGrade > 1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#D32F2F"))
-                    deviceGrade < -1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#388E3C"))
-                    else -> tvCurrentGrade.setTextColor(Color.BLACK)
+                    displayGrade > 1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#F70000"))   // Κόκκινο (Ανηφόρα)
+                    displayGrade < -1.5 -> tvCurrentGrade.setTextColor(Color.parseColor("#00F708"))  // Πράσινο (Κατηφόρα)
+                    else -> tvCurrentGrade.setTextColor(Color.parseColor("#004080"))                                  // Μαύρο (Επίπεδο)
                 }
 
                 // Κλίση Διαδρομής & Θερμίδες
@@ -1890,6 +1902,7 @@ out body center qt;
 
         // 4. Καθαρισμός λίστας για την επόμενη διαδρομή
         pathPoints.clear()
+        LocationTrackingService.masterPathPoints.clear() // 👈 ΠΡΟΣΘΕΣΕ ΑΥΤΗ ΤΗ ΓΡΑΜΜΗ ΕΔΩ!
 
         // --- 🎯 ΚΑΘΑΡΙΣΜΟΣ ΣΧΕΔΙΑΣΜΕΝΗΣ ΔΙΑΔΡΟΜΗΣ & ΠΕΡΙΓΡΑΜΜΑΤΟΣ ---
         roadBorderOverlay?.let {

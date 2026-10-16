@@ -61,6 +61,9 @@ class LocationTrackingService : Service(), SensorEventListener {
     private var previousSmoothedLocation: Location? = null
     private var wakeLock: android.os.PowerManager.WakeLock? = null
 
+    // Το βάρος διαβάζεται μόνο μία φορά
+    private var cachedWeight: Float? = null
+
     override fun onCreate() {
         super.onCreate()
 
@@ -89,8 +92,6 @@ class LocationTrackingService : Service(), SensorEventListener {
 // --- RUNNABLE: Εκτελείται σταθερά κάθε 1 δευτερόλεπτο ---
         statsRunnable = object : Runnable {
 
-            // Το βάρος διαβάζεται μόνο μία φορά
-            private var cachedWeight: Float? = null
 
             override fun run() {
 
@@ -146,8 +147,7 @@ class LocationTrackingService : Service(), SensorEventListener {
                                 speed * 1000.0f / 60.0f
 
                             // VO2 = 0.1 × ταχύτητα + 3.5
-                            val vo2 =
-                                (0.1f * speedMetersPerMinute) + 3.5f
+                            val vo2 = (0.1f * speedMetersPerMinute) + 3.5f
 
                             // Μετατροπή VO2 σε MET
                             vo2 / 3.5f
@@ -168,8 +168,7 @@ class LocationTrackingService : Service(), SensorEventListener {
                             // Άρα:
                             // VO2 = 0.2 × speed + 3.5
 
-                            val vo2 =
-                                (0.2f * speedMetersPerMinute) + 3.5f
+                            val vo2 = (0.2f * speedMetersPerMinute) + 3.5f
 
                             // Μετατροπή VO2 σε MET
                             vo2 / 3.5f
@@ -184,8 +183,7 @@ class LocationTrackingService : Service(), SensorEventListener {
                     // Το MET περιλαμβάνει ήδη την ενέργεια ηρεμίας.
                     // Επομένως ΔΕΝ προσθέτουμε ξεχωριστά BMR θερμίδες.
 
-                    val caloriesPerSecond =
-                        ((met * 3.5f * weight) / 200.0f) / 60.0f
+                    val caloriesPerSecond = ((met * 3.5f * weight) / 200.0f) / 60.0f
 
                     serviceTotalCalories += caloriesPerSecond
 
@@ -403,6 +401,7 @@ class LocationTrackingService : Service(), SensorEventListener {
             putExtra("bearing", location.bearing)
             putExtra("calories", serviceTotalCalories) // Στέλνει τις ενημερωμένες θερμίδες στο UI
             putExtra("steps", currentSteps)
+            putExtra("grade", currentGrade) // 👈 ΠΡΟΣΘΕΣΕ ΑΥΤΗ ΤΗ ΓΡΑΜΜΗ ΕΔΩ!
         }
         sendBroadcast(intent)
 
