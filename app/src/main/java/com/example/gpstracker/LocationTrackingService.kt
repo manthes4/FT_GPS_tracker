@@ -34,6 +34,10 @@ class LocationTrackingService : Service(), SensorEventListener {
         var isServicePaused = false
         var isTrackingActive = false // 👈 1. Νέα σημαία κατάστασης
         var serviceStartTime = 0L    // 👈 2. Ο ακριβής χρόνος έναρξης
+        // 👈 ΝΕΑ ΠΕΔΙΑ ΓΙΑ ΤΗ ΔΙΑΤΗΡΗΣΗ ΤΗΣ ΣΧΕΔΙΑΣΜΕΝΗΣ ΔΙΑΔΡΟΜΗΣ & ΠΛΟΗΓΗΣΗΣ
+        var servicePlannedRoutePoints = ArrayList<GeoPoint>()
+        var serviceNavigationSteps = mutableListOf<NavigationStep>()
+        var serviceEndPoint: GeoPoint? = null
     }
 
     private lateinit var locationManager: LocationManager
@@ -444,11 +448,14 @@ class LocationTrackingService : Service(), SensorEventListener {
         super.onDestroy()
         isTrackingActive = false // 👈 Ανενεργό
         masterPathPoints.clear() // 👈 Καθαρισμός master λίστας στον τερματισμό
+        servicePlannedRoutePoints.clear() // 👈 Καθαρισμός
+        serviceNavigationSteps.clear()  // 👈 Καθαρισμός
         locationManager.removeUpdates(locationListener)
         statsHandler.removeCallbacks(statsRunnable)
         sensorManager.unregisterListener(this)
         totalDistance = 0f
         previousLocation = null
+        serviceEndPoint = null
         wakeLock?.release()
     }
 }

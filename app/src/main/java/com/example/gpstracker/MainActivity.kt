@@ -568,21 +568,47 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             isTracking = savedInstanceState.getBoolean("isTracking", false)
             totalDistance = savedInstanceState.getFloat("totalDistance", 0f)
             startTime = savedInstanceState.getLong("startTime", 0)
+// Επαναφορά σχεδιασμένης διαδρομής
+            val restoredPoints = savedInstanceState.getParcelableArrayList<GeoPoint>("plannedRoutePoints")
+            if (!restoredPoints.isNullOrEmpty()) {
+                plannedRoutePoints = restoredPoints
+                redrawPlannedRoute(plannedRoutePoints)
+            }
         }
 
-        // Αν το Service τρέχει ενεργά στο παρασκήνιο (π.χ. πατήθηκε η ειδοποίηση)
+// Αν το Service τρέχει ενεργά στο παρασκήνιο (π.χ. πατήθηκε η ειδοποίηση)
         if (LocationTrackingService.isTrackingActive) {
             isTracking = true
+            Log.d("RouteDebug", "🔄 Ανίχνευση ενεργού Service κατά την επαναφορά από ειδοποίηση.")
 
             // Ανάκτηση δεδομένων από το Service
             totalDistance = LocationTrackingService.serviceTotalDistance
             currentSteps = LocationTrackingService.serviceTotalSteps
             startTime = LocationTrackingService.serviceStartTime
+
+            // 👈 ΕΠΑΝΑΦΟΡΑ ΤΟΥ ENDPOINT ΤΗΣ ΠΛΟΗΓΗΣΗΣ ΑΠΟ ΤΟ SERVICE
+            if (LocationTrackingService.serviceEndPoint != null) {
+                endPoint = LocationTrackingService.serviceEndPoint
+                Log.d("RouteDebug", "🎯 Επιτυχής επαναφορά τελικού προορισμού (endPoint)")
+            }
+
+            // 👈 ΕΠΑΝΑΦΟΡΑ ΣΧΕΔΙΑΣΜΕΝΗΣ ΔΙΑΔΡΟΜΗΣ & ΠΛΟΗΓΗΣΗΣ
+            if (LocationTrackingService.servicePlannedRoutePoints.isNotEmpty()) {
+                plannedRoutePoints = LocationTrackingService.servicePlannedRoutePoints
+                redrawPlannedRoute(plannedRoutePoints)
+                Log.d("RouteDebug", "📍 Επιτυχής επαναφορά σχεδιασμένης διαδρομής: ${plannedRoutePoints.size} σημεία")
+            }
+
+            if (LocationTrackingService.serviceNavigationSteps.isNotEmpty()) {
+                navigationSteps.clear() // 👈 Καθαρίζουμε την τρέχουσα λίστα
+                navigationSteps.addAll(LocationTrackingService.serviceNavigationSteps) // 👈 Προσθέτουμε τα νέα στοιχεία
+                Log.d("RouteDebug", "🔊 Επιτυχής επαναφορά οδηγιών πλοήγησης: ${navigationSteps.size} βήματα")
+            }
+
             if (startTime != 0L) {
                 elapsedTimeInSeconds = (System.currentTimeMillis() - startTime) / 1000
             }
 
-            // Επανεγγραφή του receiver και εκκίνηση του UI timer ασφαλώς
             registerLocationReceiverSafely()
             startUIRunnableSafely()
         }
@@ -700,7 +726,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             Log.d("TTS_DEBUG", "Κλήση speak('$text') -> Αποτέλεσμα: $result")
         } else {
             Log.d("TTS_DEBUG", "To TTS δεν είναι έτοιμο ακόμα. Προσθήκη στην ουρά: $text")
-            ttsQueue.add(text)
+            // 👈 Έλεγχος για να μην μπαίνει το ίδιο μήνυμα πολλαπλές φορές στην ουρά
+            if (!ttsQueue.contains(text)) {
+                ttsQueue.add(text)
+            }
         }
     }
 
@@ -738,6 +767,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         outState.putBoolean("isTracking", isTracking)
         outState.putFloat("totalDistance", totalDistance)
         outState.putLong("startTime", startTime)
+        // Αποθήκευση σχεδιασμένης διαδρομής αν υπάρχει
+        if (plannedRoutePoints.isNotEmpty()) {
+            outState.putParcelableArrayList("plannedRoutePoints", plannedRoutePoints)
+        }
     }
 
     override fun onDestroy() {
@@ -1655,33 +1688,42 @@ out body center qt;
                 val bearing = intent.getFloatExtra("bearing", 0f)
                 val isValid = intent.getBooleanExtra("is_valid", false)
 
-                // ΜΟΝΟ αν το σημείο είναι έγκυρο το αποθηκεύουμε στη ΖΩΝΤΑΝΗ ΚΑΤΑΓΡΑΦΗ
+// ΜΟΝΟ αν το σημείο είναι έγκυρο το αποθηκεύουμε στη ΖΩΝΤΑΝΗ ΚΑΤΑΓΡΑΦΗ
                 if (isValid) {
                     pathPoints.add(newPoint)
 
-                    // Αν οι γραμμές δεν υπάρχουν (π.χ. επιστροφή από ειδοποίηση), τις δημιουργούμε και τους δίνουμε κατευθείαν τα σημεία
-                    if (route == null || borderRoute == null) {
-                        borderRoute = Polyline().apply {
-                            outlinePaint.color = Color.parseColor("#030100")
-                            outlinePaint.strokeWidth = 17.0f
-                            outlinePaint.strokeJoin = Paint.Join.ROUND
-                            outlinePaint.strokeCap = Paint.Cap.ROUND
-                            outlinePaint.isAntiAlias = true
+                    try {
+                        // 1ο: Δημιουργία και προσθήκη του ΜΑΥΡΟΥ ΠΕΡΙΓΡΑΜΜΑΤΟΣ ΠΡΩΤΑ (από κάτω)
+                        if (borderRoute == null || !map.overlays.contains(borderRoute)) {
+                            borderRoute = Polyline().apply {
+                                outlinePaint.color = Color.parseColor("#030100")
+                                outlinePaint.strokeWidth = 17.0f
+                                outlinePaint.strokeJoin = Paint.Join.ROUND
+                                outlinePaint.strokeCap = Paint.Cap.ROUND
+                                outlinePaint.isAntiAlias = true
+                            }
+                            map.overlays.add(borderRoute)
                         }
-                        route = Polyline().apply {
-                            outlinePaint.color = Color.parseColor("#E60000")
-                            outlinePaint.strokeWidth = 9.0f
-                            outlinePaint.strokeJoin = Paint.Join.ROUND
-                            outlinePaint.strokeCap = Paint.Cap.ROUND
-                            outlinePaint.isAntiAlias = true
-                        }
-                        map.overlays.add(borderRoute)
-                        map.overlays.add(route)
-                    }
 
-                    // Ασφαλής ανάθεση ολόκληρης της λίστας
-                    route?.setPoints(pathPoints)
-                    borderRoute?.setPoints(pathPoints)
+                        // 2ο: Δημιουργία και προσθήκη της ΚΟΚΚΙΝΗΣ ΓΡΑΜΜΗΣ ΔΕΥΤΕΡΗ (από πάνω)
+                        if (route == null || !map.overlays.contains(route)) {
+                            route = Polyline().apply {
+                                outlinePaint.color = Color.parseColor("#E60000")
+                                outlinePaint.strokeWidth = 9.0f
+                                outlinePaint.strokeJoin = Paint.Join.ROUND
+                                outlinePaint.strokeCap = Paint.Cap.ROUND
+                                outlinePaint.isAntiAlias = true
+                            }
+                            map.overlays.add(route)
+                        }
+
+                        // Ενημέρωση σημείων με ασφάλεια
+                        borderRoute?.setPoints(pathPoints)
+                        route?.setPoints(pathPoints)
+
+                    } catch (e: Exception) {
+                        Log.e("LocationReceiver", "Σφάλμα ενημέρωσης γραμμής χάρτη: ${e.message}")
+                    }
                 }
 
                 val distanceInMeters = intent.getFloatExtra("distance", 0f)
@@ -2910,8 +2952,15 @@ $coords
 
                         plannedRoutePoints = road.mRouteHigh
 
+                        // 👈 Αποθήκευση στο Service για να μη χάνονται στην ειδοποίηση
+                        LocationTrackingService.servicePlannedRoutePoints = plannedRoutePoints
+
+                        Log.d("RouteDebug", "✅ Η διαδρομή υπολογίστηκε και αποθηκεύτηκε στο Service. Σημεία: ${plannedRoutePoints.size}")
+
                         val walkingMinutes = (road.mLength / 4.0) * 60.0
                         val totalMinutes = Math.round(walkingMinutes).toInt()
+
+                        // Οπτικό κείμενο για την οθόνη (περιέχει "ω" και "λ")
                         val timeText = if (totalMinutes >= 60) {
                             "${totalMinutes / 60}ω ${totalMinutes % 60}λ"
                         } else {
@@ -2934,6 +2983,7 @@ $coords
 
                         // Καθαρισμός & ενημέρωση οδηγιών navigation
                         navigationSteps.clear()
+                        LocationTrackingService.serviceNavigationSteps.clear() // 👈 Καθαρισμός Service
                         lastStraightAnnouncedDistance = 0f
                         isOffRouteAnnounced = false
                         lastAnnouncedStepIndex = -1
@@ -2945,18 +2995,46 @@ $coords
                                     android.text.Html.FROM_HTML_MODE_LEGACY
                                 ).toString()
 
-                                navigationSteps.add(
-                                    NavigationStep(
-                                        location = node.mLocation,
-                                        instruction = cleanInstruction
-                                    )
+                                // Δημιουργία του αντικειμένου βήματος
+                                val step = NavigationStep(
+                                    location = node.mLocation,
+                                    instruction = cleanInstruction
                                 )
+
+                                // 👈 Προσθήκη και στις δύο λίστες (Τοπική + Service)
+                                navigationSteps.add(step)
+                                LocationTrackingService.serviceNavigationSteps.add(step)
                             }
                         }
 
+                        // 👈 Log για να βλέπεις στο Logcat ότι αποθηκεύτηκαν
+                        Log.d("RouteDebug", "✅ Οδηγίες πλοήγησης αποθηκεύτηκαν: ${navigationSteps.size} βήματα")
+
                         if (!isRecalculation) {
                             val readableDistance = formatDistanceForSpeech(road.mLength)
-                            val initialMessage = "Η διαδρομή υπολογίστηκε. Απόσταση $readableDistance. Εκτιμώμενος χρόνος $timeText."
+
+                            // 🔊 Καθαρό κείμενο αποκλειστικά για τη φωνή (χωρίς γράμματα τύπου "ω")
+                            // 🔊 Καθαρό κείμενο αποκλειστικά για τη φωνή με σωστή γραμματική
+                            val speechTimeText = if (totalMinutes >= 60) {
+                                val hours = totalMinutes / 60
+                                val mins = totalMinutes % 60
+
+                                // Σωστή απόδοση σε θηλυκό γένος για τις ώρες
+                                val hourWord = when (hours) {
+                                    1 -> "μία ώρα"
+                                    2 -> "δύο ώρες"
+                                    3 -> "τρεις ώρες"
+                                    4 -> "τέσσερις ώρες"
+                                    else -> "$hours ώρες"
+                                }
+
+                                val minWord = if (mins > 0) " και $mins λεπτά" else ""
+                                "$hourWord$minWord"
+                            } else {
+                                "$totalMinutes λεπτά"
+                            }
+
+                            val initialMessage = "Η διαδρομή υπολογίστηκε. Απόσταση $readableDistance. Εκτιμώμενος χρόνος $speechTimeText."
                             speak(initialMessage)
                         }
 
@@ -3031,6 +3109,7 @@ $coords
         } else {
             // Ορισμός προορισμού
             endPoint = point
+            LocationTrackingService.serviceEndPoint = point // 👈 Αποθήκευση στο Service
             endMarker = addMarker(point, "Προορισμός", R.drawable.edit_location_alt_24px)
 
             // Κλήση της routing συνάρτησης που ήδη έχεις
@@ -3089,12 +3168,16 @@ $coords
         map.invalidate()
     }
 
-    // Προσθέτουμε το (shouldZoom: Boolean = true) στην παρένθεση
     private fun clearMapRouting(shouldZoom: Boolean = true) {
         // 1. Μηδενισμός βασικών μεταβλητών
         startPoint = null
         endPoint = null
         routePlanner?.clearAll()
+
+        // 👈 ΚΑΘΑΡΙΣΜΟΣ ΚΑΙ ΣΤΟ SERVICE ΓΙΑ ΝΑ ΜΗΝ ΜΕΝΟΥΝ ΠΑΛΙΑ ΔΕΔΟΜΕΝΑ
+        LocationTrackingService.servicePlannedRoutePoints.clear()
+        LocationTrackingService.serviceNavigationSteps.clear()
+        Log.d("RouteDebug", "🧹 Εκκαθάριση σχεδιασμένης διαδρομής και πλοήγησης από Service")
 
         // 2. ΚΛΕΙΣΙΜΟ ΤΩΝ INFOWINDOWS (Αυτό εξαφανίζει την καρτέλα)
         startMarker?.closeInfoWindow()
@@ -3122,12 +3205,10 @@ $coords
         endMarker = null
         currentLocationMarker = null // Μηδενίζουμε και το βέλος για να μην έχουμε διπλά είδωλα
 
-        // --- ΕΔΩ ΓΙΝΕΤΑΙ Η ΑΛΛΑΓΗ ---
         // 7. Επαναφορά στην αρχική κατάσταση (Ανθρωπάκι + Zoom) ΜΟΝΟ αν επιτρέπεται
         if (shouldZoom) {
             zoomToLastKnownLocation()
         }
-        // ----------------------------
 
         // 8. Εξαφάνιση του πάνελ πληροφοριών
         statsContainer.visibility = View.GONE
@@ -3141,8 +3222,41 @@ $coords
         }
     }
 
+    private fun redrawPlannedRoute(points: List<GeoPoint>) {
+        if (points.size < 2) return
+        roadBorderOverlay?.let { map.overlays.remove(it) }
+        roadOverlay?.let { map.overlays.remove(it) }
+
+        roadBorderOverlay = Polyline().apply {
+            setPoints(points)
+            outlinePaint.color = Color.BLACK
+            outlinePaint.strokeWidth = 18f
+            outlinePaint.strokeCap = Paint.Cap.ROUND
+            outlinePaint.strokeJoin = Paint.Join.ROUND
+            outlinePaint.isAntiAlias = true
+        }
+
+        roadOverlay = Polyline().apply {
+            setPoints(points)
+            outlinePaint.color = Color.parseColor("#00B0FF")
+            outlinePaint.strokeWidth = 10f
+            outlinePaint.strokeCap = Paint.Cap.ROUND
+            outlinePaint.strokeJoin = Paint.Join.ROUND
+            outlinePaint.isAntiAlias = true
+        }
+
+        map.overlays.add(roadBorderOverlay)
+        map.overlays.add(roadOverlay)
+        map.invalidate()
+    }
+
     override fun onResume() {
         super.onResume()
+
+        // Επανέλεγχος και επανασύνδεση TTS αν αποσυνδέθηκε στο παρασκήνιο
+        if (tts == null) {
+            tts = TextToSpeech(applicationContext, this, "com.google.android.tts")
+        }
 
         // -------------------------------------------------------------
         // 1. ΖΩΝΤΑΝΗ ΚΑΤΑΓΡΑΦΗ ΚΙΝΗΣΗΣ (Walked Path - Επαναφορά σε Μπλε)
