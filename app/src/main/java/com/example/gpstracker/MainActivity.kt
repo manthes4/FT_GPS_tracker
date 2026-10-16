@@ -243,6 +243,38 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tvCurrentGrade = findViewById(R.id.tvCurrentGrade)
         statsContainer = findViewById(R.id.stats_container)
 
+        // --- ΑΡΧΙΚΟΠΟΙΗΣΗ ΤΟΥ RUNNABLE ΓΙΑ ΑΣΦΑΛΕΙΑ ---
+        updateStatsRunnable = object : Runnable {
+            override fun run() {
+                if (isTracking) {
+                    if (LocationTrackingService.isServicePaused) {
+                        handler.postDelayed(this, 1000)
+                        return
+                    }
+
+                    elapsedTimeInSeconds++
+                    tvAccuracy.visibility = View.VISIBLE
+                    tvCurrentGrade.visibility = View.VISIBLE
+                    statsContainer.visibility = View.VISIBLE
+
+                    val distanceInKm = totalDistance / 1000.0
+                    val avgSpeed = if (elapsedTimeInSeconds > 0) (distanceInKm / elapsedTimeInSeconds) * 3600 else 0.0
+
+                    if (totalDistance < 1000f) {
+                        tvDistance.text = String.format("%.0f m", totalDistance)
+                    } else {
+                        tvDistance.text = String.format("%.2f km", distanceInKm)
+                    }
+
+                    tvTime.text = formatTime(elapsedTimeInSeconds)
+                    tvCurrentSpeed.text = String.format("%.1f", currentSpeed)
+                    tvAvgSpeed.text = String.format("%.1f", avgSpeed)
+
+                    handler.postDelayed(this, 1000)
+                }
+            }
+        }
+
 // --- 3. Map basic settings ---
         map.setMultiTouchControls(true)        // pinch + drag
         map.setBuiltInZoomControls(false)      // κλείνουμε τα buttons
@@ -531,13 +563,28 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             fetchAndDisplayPOIs()
         }
 
+        // --- ΕΛΕΓΧΟΣ ΕΠΑΝΑΦΟΡΑΣ ΑΠΟ ΤΟ SERVICE ---
         if (savedInstanceState != null) {
             isTracking = savedInstanceState.getBoolean("isTracking", false)
             totalDistance = savedInstanceState.getFloat("totalDistance", 0f)
             startTime = savedInstanceState.getLong("startTime", 0)
-            if (isTracking) {
-                startTracking()
+        }
+
+        // Αν το Service τρέχει ενεργά στο παρασκήνιο (π.χ. πατήθηκε η ειδοποίηση)
+        if (LocationTrackingService.isTrackingActive) {
+            isTracking = true
+
+            // Ανάκτηση δεδομένων από το Service
+            totalDistance = LocationTrackingService.serviceTotalDistance
+            currentSteps = LocationTrackingService.serviceTotalSteps
+            startTime = LocationTrackingService.serviceStartTime
+            if (startTime != 0L) {
+                elapsedTimeInSeconds = (System.currentTimeMillis() - startTime) / 1000
             }
+
+            // Επανεγγραφή του receiver και εκκίνηση του UI timer ασφαλώς
+            registerLocationReceiverSafely()
+            startUIRunnableSafely()
         }
 
         // Έλεγχος αν η εφαρμογή άνοιξε από εξωτερικό αρχείο (File Manager)
@@ -582,6 +629,56 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         } else {
             Log.e("TTS_DEBUG", "❌ Αποτυχία αρχικοποίησης TTS status: $status")
         }
+    }
+
+    private fun registerLocationReceiverSafely() {
+        try {
+            unregisterReceiver(locationReceiver)
+        } catch (e: Exception) {
+            // Αγνοούμε αν δεν ήταν εγγεγραμμένος
+        }
+        val filter = IntentFilter("LocationUpdate")
+        ContextCompat.registerReceiver(
+            this,
+            locationReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+    }
+
+    private fun startUIRunnableSafely() {
+        handler.removeCallbacks(updateStatsRunnable)
+        updateStatsRunnable = object : Runnable {
+            override fun run() {
+                if (isTracking) {
+                    if (LocationTrackingService.isServicePaused) {
+                        handler.postDelayed(this, 1000)
+                        return
+                    }
+
+                    elapsedTimeInSeconds++
+                    tvAccuracy.visibility = View.VISIBLE
+                    tvCurrentGrade.visibility = View.VISIBLE
+                    statsContainer.visibility = View.VISIBLE
+
+                    val distanceInKm = totalDistance / 1000.0
+                    val avgSpeed = if (elapsedTimeInSeconds > 0) (distanceInKm / elapsedTimeInSeconds) * 3600 else 0.0
+
+                    if (totalDistance < 1000f) {
+                        tvDistance.text = String.format("%.0f m", totalDistance)
+                    } else {
+                        tvDistance.text = String.format("%.2f km", distanceInKm)
+                    }
+
+                    tvTime.text = formatTime(elapsedTimeInSeconds)
+                    tvCurrentSpeed.text = String.format("%.1f", currentSpeed)
+                    tvAvgSpeed.text = String.format("%.1f", avgSpeed)
+
+                    handler.postDelayed(this, 1000)
+                }
+            }
+        }
+        handler.post(updateStatsRunnable)
     }
 
     // 2. ΔΙΟΡΘΩΜΕΝΗ SPEAK
@@ -1533,6 +1630,7 @@ out body center qt;
 
     private val locationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
+            if (!isTracking) return
             if (intent?.action == "LocationUpdate") {
                 // 1. Παίρνουμε τις συντεταγμένες από το Intent
                 val lat = intent.getDoubleExtra("lat", 0.0)
@@ -1560,8 +1658,30 @@ out body center qt;
                 // ΜΟΝΟ αν το σημείο είναι έγκυρο το αποθηκεύουμε στη ΖΩΝΤΑΝΗ ΚΑΤΑΓΡΑΦΗ
                 if (isValid) {
                     pathPoints.add(newPoint)
-                    route?.addPoint(newPoint)
-                    borderRoute?.addPoint(newPoint)
+
+                    // Αν οι γραμμές δεν υπάρχουν (π.χ. επιστροφή από ειδοποίηση), τις δημιουργούμε και τους δίνουμε κατευθείαν τα σημεία
+                    if (route == null || borderRoute == null) {
+                        borderRoute = Polyline().apply {
+                            outlinePaint.color = Color.parseColor("#030100")
+                            outlinePaint.strokeWidth = 17.0f
+                            outlinePaint.strokeJoin = Paint.Join.ROUND
+                            outlinePaint.strokeCap = Paint.Cap.ROUND
+                            outlinePaint.isAntiAlias = true
+                        }
+                        route = Polyline().apply {
+                            outlinePaint.color = Color.parseColor("#E60000")
+                            outlinePaint.strokeWidth = 9.0f
+                            outlinePaint.strokeJoin = Paint.Join.ROUND
+                            outlinePaint.strokeCap = Paint.Cap.ROUND
+                            outlinePaint.isAntiAlias = true
+                        }
+                        map.overlays.add(borderRoute)
+                        map.overlays.add(route)
+                    }
+
+                    // Ασφαλής ανάθεση ολόκληρης της λίστας
+                    route?.setPoints(pathPoints)
+                    borderRoute?.setPoints(pathPoints)
                 }
 
                 val distanceInMeters = intent.getFloatExtra("distance", 0f)
@@ -1756,6 +1876,7 @@ out body center qt;
     }
 
     private fun updateCurrentLocationMarker(point: GeoPoint, bearing: Float) {
+        if (!map.isAttachedToWindow) return
         if (currentLocationMarker == null) {
             // --- Δημιουργία Bitmap ΜΙΑ ΦΟΡΑ ---
             val drawable = ContextCompat.getDrawable(this, R.drawable.arrow_vector)!!.mutate()

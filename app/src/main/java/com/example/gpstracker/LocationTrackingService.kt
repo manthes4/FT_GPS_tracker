@@ -32,6 +32,8 @@ class LocationTrackingService : Service(), SensorEventListener {
         var serviceTotalSteps = 0
         var serviceTotalCalories = 0.0
         var isServicePaused = false
+        var isTrackingActive = false // 👈 1. Νέα σημαία κατάστασης
+        var serviceStartTime = 0L    // 👈 2. Ο ακριβής χρόνος έναρξης
     }
 
     private lateinit var locationManager: LocationManager
@@ -227,6 +229,7 @@ class LocationTrackingService : Service(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        isTrackingActive = true // 👈 Ενεργό
         // Μηδενισμός δεδομένων για τη νέα διαδρομή
         totalDistance = 0f
         currentGrade = 0.0
@@ -238,6 +241,7 @@ class LocationTrackingService : Service(), SensorEventListener {
         serviceTotalCalories = 0.0 // <-- Μηδενισμός θερμίδων στην έναρξη
 
         startTime = System.currentTimeMillis()
+        serviceStartTime = startTime // 👈 Αποθήκευση χρόνου
         statsHandler.post(statsRunnable)
 
         startForegroundService()
@@ -275,6 +279,7 @@ class LocationTrackingService : Service(), SensorEventListener {
             .setContentText("$line1  |  $line2")
             .setStyle(NotificationCompat.BigTextStyle().bigText("$line1\n$line2"))
             .setSmallIcon(R.drawable.ic_location)
+            .setContentIntent(getMainActivityPendingIntent()) // 👈 ΠΡΟΣΘΕΣΕ ΚΑΙ ΕΔΩ ΑΥΤΗ ΤΗ ΓΡΑΜΜΗ
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
@@ -303,6 +308,7 @@ class LocationTrackingService : Service(), SensorEventListener {
             .setContentText("📍 0.00 km  |  ⏱️ 00:00:00")
             .setStyle(NotificationCompat.BigTextStyle().bigText("📍 0.00 km  |  ⏱️ 00:00:00\n⚡ 0.0 km/h  |  👣 0 steps"))
             .setSmallIcon(R.drawable.ic_location)
+            .setContentIntent(getMainActivityPendingIntent()) // 👈 ΠΡΟΣΘΕΣΕ ΑΥΤΗ ΤΗ ΓΡΑΜΜΗ
             .setOngoing(true)
             .build()
 
@@ -420,10 +426,24 @@ class LocationTrackingService : Service(), SensorEventListener {
         lastStepsForFilter = currentSteps
     }
 
+    private fun getMainActivityPendingIntent(): PendingIntent {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        return PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         super.onDestroy()
+        isTrackingActive = false // 👈 Ανενεργό
+        masterPathPoints.clear() // 👈 Καθαρισμός master λίστας στον τερματισμό
         locationManager.removeUpdates(locationListener)
         statsHandler.removeCallbacks(statsRunnable)
         sensorManager.unregisterListener(this)
