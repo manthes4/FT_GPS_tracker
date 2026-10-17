@@ -1,6 +1,7 @@
 package com.example.gpstracker
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.os.Environment
 import android.util.Log
@@ -58,6 +59,17 @@ class StatsActivity : AppCompatActivity() {
                 val internalKmlName = parts[6]
                 val distanceValue = parts[2]
 
+                // 1. Κλικ στην κάρτα -> Επιστροφή στη MainActivity για φόρτωση
+                val statItemRoot: LinearLayout = statView.findViewById(R.id.stat_item_root)
+                statItemRoot.setOnClickListener {
+                    val resultIntent = Intent().apply {
+                        putExtra("SELECTED_KML_FILE", internalKmlName)
+                    }
+                    setResult(RESULT_OK, resultIntent)
+                    finish()
+                }
+
+                // 2. Κλικ στο κουμπί εξαγωγής -> Αποθήκευση στο Documents/FT Gps Tracker
                 val exportIcon: ImageButton = statView.findViewById(R.id.export_button)
                 exportIcon.setOnClickListener {
                     copyInternalKmlToPublic(internalKmlName, distanceValue)

@@ -12,6 +12,7 @@ import android.graphics.Bitmap
 import android.graphics.BlurMaskFilter
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
+import androidx.activity.result.contract.ActivityResultContracts
 import android.location.Geocoder
 import android.location.GnssStatus
 import android.location.Location
@@ -199,6 +200,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private var trackingOverlay: Polyline? = null  // <-- Προσθέστε αυτή τη γραμμή
     private lateinit var tvAltitude: android.widget.TextView
+
+    private val statsLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val kmlFileName = result.data?.getStringExtra("SELECTED_KML_FILE")
+            if (!kmlFileName.isNullOrEmpty()) {
+                // Δημιουργούμε το File αντικείμενο από τον εσωτερικό φάκελο της εφαρμογής
+                val internalFile = File(filesDir, kmlFileName)
+
+                // Χρησιμοποιούμε την έτοιμη συνάρτησή σου που τα κάνει ΟΛΑ (parsing, γραμμή, info window, θερμίδες)
+                loadKmlFromFile(internalFile)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -528,8 +544,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
 
         viewStatsButton.setOnClickListener {
+            // ✔️ Αυτό θα βάλεις τώρα:
             val intent = Intent(this, StatsActivity::class.java)
-            startActivity(intent)
+            statsLauncher.launch(intent)
         }
 
         viewSatellitesButton.setOnClickListener {
@@ -1663,6 +1680,49 @@ out body center qt;
         )
     }
 
+    private fun loadRouteFromInternalStorage(filename: String) {
+        try {
+            val file = File(filesDir, filename)
+            if (!file.exists()) {
+                Toast.makeText(this, "Το αρχείο δεν βρέθηκε", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            val inputStream = file.inputStream()
+
+            // 1. Καλούμε τον KML Parser σου (ή τη συνάρτηση που ήδη έχεις για να διαβάζεις KML)
+            // Υποθέτοντας ότι έχεις έτοιμη τη συνάρτηση parseKmlFile(inputStream):
+            parseKmlFile(inputStream)
+            inputStream.close()
+
+            // 2. Ανάκτηση των σημείων και σχεδίαση στον χάρτη
+            kmlRoute?.points?.let { points ->
+                if (points.isNotEmpty()) {
+                    // Καθαρισμός τυχόν προηγούμενων σχεδίων και προσθήκη της γραμμής
+                    if (route != null) {
+                        map.overlays.remove(route)
+                    }
+
+                    route = Polyline().apply {
+                        outlinePaint.color = Color.parseColor("#E60000")
+                        outlinePaint.strokeWidth = 9.0f
+                        setPoints(points)
+                    }
+                    map.overlays.add(route)
+
+                    // Κεντράρισμα και ζουμ στην αρχή της διαδρομής
+                    map.controller.animateTo(points.first(), 16.0, 1000L)
+                    map.invalidate()
+
+                    Toast.makeText(this, "Η διαδρομή φορτώθηκε επιτυχώς!", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("LOAD_ROUTE", "Error: ${e.message}")
+            Toast.makeText(this, "Σφάλμα φόρτωσης διαδρομής", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private val locationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (!isTracking) return
@@ -2468,6 +2528,47 @@ $coords
         } catch (e: Exception) {
             showCustomToast("Σφάλμα κατά το άνοιγμα του αρχείου")
             Log.e("KML_IMPORT", "Error: ${e.message}")
+        }
+    }
+
+    private fun loadInternalKmlFile(filename: String) {
+        try {
+            val file = File(filesDir, filename)
+            if (!file.exists()) {
+                Toast.makeText(this, "Το αρχείο δεν βρέθηκε", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            val inputStream = file.inputStream()
+
+            // Καλούμε τον parser που χρησιμοποιείς για να διαβάσεις το KML
+            parseKmlFile(inputStream)
+            inputStream.close()
+
+            // Σχεδίαση της διαδρομής στον χάρτη
+            kmlRoute?.points?.let { points ->
+                if (points.isNotEmpty()) {
+                    if (route != null) {
+                        map.overlays.remove(route)
+                    }
+
+                    route = Polyline().apply {
+                        outlinePaint.color = Color.parseColor("#E60000")
+                        outlinePaint.strokeWidth = 9.0f
+                        setPoints(points)
+                    }
+                    map.overlays.add(route)
+
+                    // Κεντράρισμα στο πρώτο σημείο
+                    map.controller.animateTo(points.first(), 16.0, 1000L)
+                    map.invalidate()
+
+                    Toast.makeText(this, "Η διαδρομή φορτώθηκε επιτυχώς", Toast.LENGTH_SHORT).show()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("LOAD_KML", "Error: ${e.message}")
+            Toast.makeText(this, "Σφάλμα φόρτωσης διαδρομής", Toast.LENGTH_SHORT).show()
         }
     }
 
