@@ -259,11 +259,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         tvCurrentGrade = findViewById(R.id.tvCurrentGrade)
         statsContainer = findViewById(R.id.stats_container)
 
-        // --- ΑΡΧΙΚΟΠΟΙΗΣΗ ΤΟΥ RUNNABLE ΓΙΑ ΑΣΦΑΛΕΙΑ ---
+// --- ΑΡΧΙΚΟΠΟΙΗΣΗ ΤΟΥ RUNNABLE ΓΙΑ ΑΣΦΑΛΕΙΑ ---
         updateStatsRunnable = object : Runnable {
             override fun run() {
                 if (isTracking) {
-                    if (LocationTrackingService.isServicePaused) {
+                    // 🛑 ΠΡΟΣΘΗΚΗ: Αν είναι σε χειροκίνητη ή αυτόματη παύση, δεν αυξάνουμε χρόνο/ταχύτητα
+                    if (LocationTrackingService.isServicePaused || LocationTrackingService.isAutoPaused) {
                         handler.postDelayed(this, 1000)
                         return
                     }
@@ -580,6 +581,37 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             fetchAndDisplayPOIs()
         }
 
+        // --- ΑΚΡΟΑΤΗΣ ΓΙΑ ΤΟ AUTO-PAUSE (Toast & Εικονίδιο) ---
+        val autoPauseFilter = IntentFilter("AutoPauseUpdate")
+        ContextCompat.registerReceiver(
+            this,
+            object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    val isPaused = intent?.getBooleanExtra("is_auto_paused", false) ?: false
+                    val startIcon = startButton.findViewById<android.widget.ImageView>(R.id.button_start_icon)
+                    val startText = startButton.findViewById<android.widget.TextView>(R.id.button_start_text)
+
+                    if (isPaused) {
+                        // 🎯 ΕΔΩ ΚΑΛΟΥΜΕ ΤΗ ΔΙΚΗ ΣΟΥ ΣΥΝΑΡΤΗΣΗ ΤΟΥ TOAST
+                        showCustomToast("Αυτόματη παύση καταγραφής")
+
+                        startText?.text = "Resume"
+                        startIcon?.setImageResource(android.R.drawable.ic_media_pause)
+                        startIcon?.setColorFilter(Color.parseColor("#FFAB00")) // Πορτοκαλί
+                    } else {
+                        // 🎯 ΚΑΙ ΕΔΩ Η ΔΙΚΗ ΣΟΥ ΣΥΝΑΡΤΗΣΗ
+                        showCustomToast("Επανέναρξη καταγραφής")
+
+                        startText?.text = "Pause"
+                        startIcon?.setImageResource(R.drawable.baseline_gps_fixed_24)
+                        startIcon?.setColorFilter(Color.parseColor("#64DD17")) // Πράσινο
+                    }
+                }
+            },
+            autoPauseFilter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+
         // --- ΕΛΕΓΧΟΣ ΕΠΑΝΑΦΟΡΑΣ ΑΠΟ ΤΟ SERVICE ---
         if (savedInstanceState != null) {
             isTracking = savedInstanceState.getBoolean("isTracking", false)
@@ -694,7 +726,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         updateStatsRunnable = object : Runnable {
             override fun run() {
                 if (isTracking) {
-                    if (LocationTrackingService.isServicePaused) {
+                    // 🛑 ΠΡΟΣΘΗΚΗ: Αν είναι σε χειροκίνητη ή αυτόματη παύση, δεν αυξάνουμε χρόνο/ταχύτητα
+                    if (LocationTrackingService.isServicePaused || LocationTrackingService.isAutoPaused) {
+                        Log.d("CheckAutoPause", "Ο χρόνος παύθηκε επειδή isAutoPaused = ${LocationTrackingService.isAutoPaused}")
                         handler.postDelayed(this, 1000)
                         return
                     }
@@ -1457,7 +1491,7 @@ out body center qt;
         Toast(applicationContext).apply {
             duration = Toast.LENGTH_SHORT
             view = layout
-            setGravity(Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0, 290)
+            setGravity(Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL, 0, 490)
             show()
         }
     }
@@ -1633,12 +1667,13 @@ out body center qt;
         showCustomToast("Tracking started")
         updateNotification("Tracking started")
 
-        // 4. ΕΝΗΜΕΡΩΣΗ UI
 // 4. ΕΝΗΜΕΡΩΣΗ UI
         updateStatsRunnable = object : Runnable {
             override fun run() {
                 if (isTracking) {
-                    if (LocationTrackingService.isServicePaused) {
+                    // 🛑 ΠΡΟΣΘΗΚΗ ΚΑΙ ΕΔΩ: Έλεγχος για χειροκίνητη ή αυτόματη παύση
+                    if (LocationTrackingService.isServicePaused || LocationTrackingService.isAutoPaused) {
+                        Log.d("CheckAutoPause", "Ο χρόνος παύθηκε επειδή isAutoPaused = ${LocationTrackingService.isAutoPaused}")
                         handler.postDelayed(this, 1000)
                         return
                     }
@@ -1726,6 +1761,11 @@ out body center qt;
     private val locationReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (!isTracking) return
+            // 🛑 ΕΔΩ ΕΙΣΑΙ: Αν είμαστε σε χειροκίνητη ή αυτόματη παύση, αγνοούμε εντελώς τα νέα δεδομένα GPS!
+            if (LocationTrackingService.isServicePaused || LocationTrackingService.isAutoPaused) {
+                return
+            }
+
             if (intent?.action == "LocationUpdate") {
                 // 1. Παίρνουμε τις συντεταγμένες από το Intent
                 val lat = intent.getDoubleExtra("lat", 0.0)

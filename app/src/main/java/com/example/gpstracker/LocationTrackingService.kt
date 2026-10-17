@@ -18,6 +18,7 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import org.osmdroid.util.GeoPoint
@@ -38,7 +39,13 @@ class LocationTrackingService : Service(), SensorEventListener {
         var servicePlannedRoutePoints = ArrayList<GeoPoint>()
         var serviceNavigationSteps = mutableListOf<NavigationStep>()
         var serviceEndPoint: GeoPoint? = null
+        var isAutoPaused = false
     }
+
+    // ⏸️ Μεταβλητές Auto-Pause
+    private var stationaryStartTime: Long = 0L
+    private val AUTO_PAUSE_DELAY_MS = 20000L // 20 δευτερόλεπτα
+    private val SPEED_THRESHOLD = 1.2f       // ~2.8 km/h (σε m/s)
 
     private lateinit var locationManager: LocationManager
     private var previousLocation: Location? = null
@@ -95,110 +102,95 @@ class LocationTrackingService : Service(), SensorEventListener {
 
         lastStepTime = 0L
 
-// --- RUNNABLE: Εκτελείται σταθερά κάθε 1 δευτερόλεπτο ---
+        // --- RUNNABLE: Εκτελείται σταθερά κάθε 1 δευτερόλεπτο ---
         statsRunnable = object : Runnable {
-
-
             override fun run() {
-
-                if (startTime != 0L && !isServicePaused) {
-
-                    val elapsedTimeSeconds =
-                        (System.currentTimeMillis() - startTime) / 1000
-
-                    // 1. Διαβάζουμε το βάρος μόνο την πρώτη φορά
-                    if (cachedWeight == null) {
-
-                        val sharedPrefs =
-                            getSharedPreferences(
-                                "gps_stats",
-                                Context.MODE_PRIVATE
-                            )
-
-                        cachedWeight =
-                            sharedPrefs.getFloat(
-                                "user_weight",
-                                115.0f
-                            )
-                    }
-
-                    val weight = cachedWeight!!
-
-                    // 2. Τρέχουσα ταχύτητα
-                    val speed = currentSpeedKmH.coerceAtLeast(0.0f)
-
-                    // 3. Υπολογισμός MET
-                    //
-                    // Για περπάτημα χρησιμοποιούμε τη σχέση
-                    // ACSM για οριζόντιο περπάτημα.
-                    //
-                    // Για τρέξιμο χρησιμοποιούμε τη σχέση
-                    // ACSM για οριζόντιο τρέξιμο.
-                    //
-                    // Το αποτέλεσμα είναι συνεχές και όχι
-                    // απότομα διαφορετικό όταν αλλάζει λίγο
-                    // η ταχύτητα.
-
-                    val met = when {
-
-                        // Στάση / σχεδόν ακίνητος
-                        speed < 1.0f -> {
-                            1.3f
-                        }
-
-                        // Περπάτημα
-                        speed < 8.0f -> {
-
-                            val speedMetersPerMinute =
-                                speed * 1000.0f / 60.0f
-
-                            // VO2 = 0.1 × ταχύτητα + 3.5
-                            val vo2 = (0.1f * speedMetersPerMinute) + 3.5f
-
-                            // Μετατροπή VO2 σε MET
-                            vo2 / 3.5f
-                        }
-
-                        // Τρέξιμο
-                        else -> {
-
-                            val speedMetersPerMinute =
-                                speed * 1000.0f / 60.0f
-
-                            // ACSM running equation:
-                            //
-                            // VO2 = 0.2 × speed + 0.9 × speed × grade + 3.5
-                            //
-                            // grade = 0 (επίπεδη διαδρομή)
-                            //
-                            // Άρα:
-                            // VO2 = 0.2 × speed + 3.5
-
-                            val vo2 = (0.2f * speedMetersPerMinute) + 3.5f
-
-                            // Μετατροπή VO2 σε MET
-                            vo2 / 3.5f
-                        }
-                    }
-
-                    // 4. Συνολικές (GROSS) θερμίδες
-                    //
-                    // kcal/min =
-                    // MET × 3.5 × βάρος / 200
-                    //
-                    // Το MET περιλαμβάνει ήδη την ενέργεια ηρεμίας.
-                    // Επομένως ΔΕΝ προσθέτουμε ξεχωριστά BMR θερμίδες.
-
-                    val caloriesPerSecond = ((met * 3.5f * weight) / 200.0f) / 60.0f
-
-                    serviceTotalCalories += caloriesPerSecond
-
-                    // 5. Ενημέρωση Notification
-                    updateNotification(
-                        totalDistance,
-                        elapsedTimeSeconds
-                    )
+                if (startTime == 0L || isServicePaused) {
+                    statsHandler.postDelayed(this, 1000)
+                    return
                 }
+
+                val currentTime = System.currentTimeMillis()
+
+                // 🛑 1. TIMEOUT GPS: Αν πέρασαν πάνω από 3 δευτερόλεπτα χωρίς νέο GPS update, θεωρούμε ταχύτητα 0!
+                if (currentTime - lastFilterTime > 3000L) {
+                    currentSpeedKmH = 0.0f
+                }
+
+                // 🛑 2. ΕΛΕΓΧΟΣ ΑΚΙΝΗΣΙΑΣ
+                val isStationary = currentSpeedKmH < 1.0f // Κάτω από 1 km/h
+
+                if (isStationary) {
+                    if (stationaryStartTime == 0L) {
+                        stationaryStartTime = currentTime
+                        Log.d("AutoPauseLog", "⏳ Ο χρήστης σταμάτησε. Ξεκινάει η μέτρηση ακινησίας...")
+                    } else {
+                        val elapsedStationaryTime = currentTime - stationaryStartTime
+                        Log.d("AutoPauseLog", "⏱️ Χρόνος ακινησίας: ${elapsedStationaryTime / 1000}s / 10s")
+
+                        if (!isAutoPaused && (elapsedStationaryTime >= 10000L)) { // 10 δευτερόλεπτα (ή 20000L για 20s)
+                            isAutoPaused = true
+                            currentSpeedKmH = 0.0f // 👈 Μηδενισμός στιγμιαίας ταχύτητας για να παγώσει το UI
+
+                            Log.d("AutoPauseLog", "⏸️ [AUTO-PAUSE ACTIVATED] Έγινε αυτόματη παύση!")
+
+                            // 📡 Αποστολή Broadcast για αλλαγή εικονιδίου σε Pause στη MainActivity
+                            val autoPauseIntent = Intent("AutoPauseUpdate").apply {
+                                putExtra("is_auto_paused", true)
+                            }
+                            sendBroadcast(autoPauseIntent)
+                        }
+                    }
+                } else {
+                    // Κινείται πραγματικά -> Επανέναρξη
+                    if (isAutoPaused) {
+                        Log.d("AutoPauseLog", "▶️ [AUTO-RESUME] Ο χρήστης κινήθηκε ξανά!")
+
+                        // 📡 Αποστολή Broadcast για επαναφορά εικονιδίου στη MainActivity
+                        val autoPauseIntent = Intent("AutoPauseUpdate").apply {
+                            putExtra("is_auto_paused", false)
+                        }
+                        sendBroadcast(autoPauseIntent)
+                    }
+                    stationaryStartTime = 0L
+                    isAutoPaused = false
+                }
+
+                // 🛑 3. Αν είμαστε σε Auto-Pause, ΠΑΓΩΝΟΥΝ χρόνος & θερμίδες
+                if (isAutoPaused) {
+                    statsHandler.postDelayed(this, 1000)
+                    return
+                }
+
+                // 4. Κανονικός υπολογισμός χρόνου & θερμίδων
+                val elapsedTimeSeconds = (currentTime - startTime) / 1000
+
+                if (cachedWeight == null) {
+                    val sharedPrefs = getSharedPreferences("gps_stats", Context.MODE_PRIVATE)
+                    cachedWeight = sharedPrefs.getFloat("user_weight", 115.0f)
+                }
+
+                val weight = cachedWeight!!
+                val speed = currentSpeedKmH.coerceAtLeast(0.0f)
+
+                val met = when {
+                    speed < 1.0f -> 1.3f
+                    speed < 8.0f -> {
+                        val speedMetersPerMinute = speed * 1000.0f / 60.0f
+                        val vo2 = (0.1f * speedMetersPerMinute) + 3.5f
+                        vo2 / 3.5f
+                    }
+                    else -> {
+                        val speedMetersPerMinute = speed * 1000.0f / 60.0f
+                        val vo2 = (0.2f * speedMetersPerMinute) + 3.5f
+                        vo2 / 3.5f
+                    }
+                }
+
+                val caloriesPerSecond = ((met * 3.5f * weight) / 200.0f) / 60.0f
+                serviceTotalCalories += caloriesPerSecond
+
+                updateNotification(totalDistance, elapsedTimeSeconds)
 
                 statsHandler.postDelayed(this, 1000)
             }
@@ -327,6 +319,55 @@ class LocationTrackingService : Service(), SensorEventListener {
         if (isServicePaused) return@LocationListener
         val currentTime = System.currentTimeMillis()
 
+        // 👈 Αποθήκευση της τρέχουσας θέσης για σύγκριση
+        val currentSpeedMs = location.speed
+        currentSpeedKmH = currentSpeedMs * 3.6f
+        val distanceMoved = if (previousSmoothedLocation != null) {
+            previousSmoothedLocation!!.distanceTo(location)
+        } else {
+            0f
+        }
+
+        val isStationary = currentSpeedMs < SPEED_THRESHOLD && distanceMoved < 1.5f
+
+        if (isStationary) {
+            if (stationaryStartTime == 0L) {
+                stationaryStartTime = currentTime
+                Log.d("AutoPauseLog", "⏳ Ο χρήστης σταμάτησε. Αρχίζει η μέτρηση 20 δευτερολέπτων...")
+            } else {
+                val elapsedStationaryTime = currentTime - stationaryStartTime
+                Log.d("AutoPauseLog", "⏱️ Χρόνος ακινησίας: ${elapsedStationaryTime / 1000}s / 20s")
+
+                if (!isAutoPaused && (elapsedStationaryTime >= AUTO_PAUSE_DELAY_MS)) {
+                    isAutoPaused = true
+                    Log.d("AutoPauseLog", "⏸️ [AUTO-PAUSE ACTIVATED] Έγινε αυτόματη παύση!")
+
+                    // 📡 Αποστολή Broadcast (Η MainActivity θα εμφανίσει το custom Toast και θα αλλάξει το εικονίδιο)
+                    val autoPauseIntent = Intent("AutoPauseUpdate").apply {
+                        putExtra("is_auto_paused", true)
+                    }
+                    sendBroadcast(autoPauseIntent)
+                }
+            }
+        } else {
+            if (isAutoPaused) {
+                Log.d("AutoPauseLog", "▶️ [AUTO-RESUME] Ξεκίνησε ξανά η κίνηση!")
+
+                // 📡 Αποστολή Broadcast (Η MainActivity θα εμφανίσει το custom Toast και θα επαναφέρει το εικονίδιο)
+                val autoPauseIntent = Intent("AutoPauseUpdate").apply {
+                    putExtra("is_auto_paused", false)
+                }
+                sendBroadcast(autoPauseIntent)
+            }
+            stationaryStartTime = 0L
+            isAutoPaused = false
+        }
+
+        // Αν είμαστε σε κατάσταση Auto-Pause, ΑΓΝΟΟΥΜΕ εντελώς τη μέτρηση
+        if (isAutoPaused) {
+            return@LocationListener
+        }
+
         if (location.accuracy > 35f) return@LocationListener
 
         var isPointValid = false
@@ -407,11 +448,11 @@ class LocationTrackingService : Service(), SensorEventListener {
             putExtra("distance", totalDistance)
             putExtra("current_speed", currentSpeedKmH)
             putExtra("accuracy", location.accuracy)
-            putExtra("altitude", location.altitude) // 👈 Υπάρχει αυτή η γραμμή στον Service σου;
+            putExtra("altitude", location.altitude)
             putExtra("bearing", location.bearing)
-            putExtra("calories", serviceTotalCalories) // Στέλνει τις ενημερωμένες θερμίδες στο UI
+            putExtra("calories", serviceTotalCalories)
             putExtra("steps", currentSteps)
-            putExtra("grade", currentGrade) // 👈 ΠΡΟΣΘΕΣΕ ΑΥΤΗ ΤΗ ΓΡΑΜΜΗ ΕΔΩ!
+            putExtra("grade", currentGrade)
         }
         sendBroadcast(intent)
 
