@@ -794,7 +794,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             // Ενημέρωση υψομέτρου σε πραγματικό χρόνο
             if (location.hasAltitude()) {
                 // 1. Αφαιρούμε ~35μ. (Geoid Offset Ελλάδας) για να έρθει κοντά στα πραγματικά μέτρα
-                val rawAltitude = location.altitude - 41.0
+                // Αντί για: val rawAltitude = location.altitude - 41.0
+                val geoidOffset = GeoidGridGreece.getGeoidOffset(location.latitude, location.longitude)
+                val rawAltitude = location.altitude - geoidOffset
 
                 if (isFirstAltitude) {
                     smoothedAltitude = rawAltitude
@@ -1675,12 +1677,20 @@ out body center qt;
                 val accuracy = intent.getFloatExtra("accuracy", 0f)
 
 // 🏔️ Διόρθωση υψομέτρου (Geoid Offset & Smoothing)
-                val rawAltitude = intent.getDoubleExtra("altitude", 0.0) - 41.0
-                if (isFirstAltitude) {
-                    smoothedAltitude = rawAltitude
-                    isFirstAltitude = false
-                } else {
-                    smoothedAltitude = smoothedAltitude * 0.85 + rawAltitude * 0.15
+// 🏔️ Διόρθωση υψομέτρου (Geoid Offset & Smoothing)
+                val incomingAltitude = intent.getDoubleExtra("altitude", 0.0)
+
+// Ελέγχουμε αν το GPS έστειλε έγκυρο υψόμετρο (να μην είναι 0.0)
+                if (incomingAltitude != 0.0) {
+                    val geoidOffset = GeoidGridGreece.getGeoidOffset(lat, lng)
+                    val rawAltitude = incomingAltitude - geoidOffset
+
+                    if (isFirstAltitude) {
+                        smoothedAltitude = rawAltitude
+                        isFirstAltitude = false
+                    } else {
+                        smoothedAltitude = smoothedAltitude * 0.85 + rawAltitude * 0.15
+                    }
                 }
 
                 val roadGrade = intent.getDoubleExtra("grade", 0.0)
@@ -3344,3 +3354,29 @@ data class NavigationStep(
     var hasAnnouncedAdvance: Boolean = false,   // Προειδοποίηση (π.χ. στα 40m)
     var hasAnnouncedImmediate: Boolean = false  // Τελική ειδοποίηση (στα 10m)
 )
+
+object GeoidGridGreece {
+    private val offsets = arrayOf(
+        doubleArrayOf(33.0, 33.5, 34.0, 34.5, 35.0, 35.5, 36.0, 36.5, 37.0, 37.5, 38.0, 38.5), // Lat 34 (Νότια Κρήτη)
+        doubleArrayOf(34.0, 34.5, 35.0, 35.5, 36.0, 36.5, 37.0, 37.5, 38.0, 38.5, 39.0, 39.5), // Lat 35
+        doubleArrayOf(35.2, 35.7, 36.2, 36.8, 37.3, 37.8, 38.3, 38.8, 39.3, 39.8, 40.3, 40.8), // Lat 36 (Πελοπόννησος/Αθήνα)
+        doubleArrayOf(36.5, 37.0, 37.5, 38.0, 38.5, 39.0, 39.5, 40.0, 40.5, 41.0, 41.5, 42.0), // Lat 37
+        doubleArrayOf(37.8, 38.3, 38.8, 39.3, 39.8, 40.3, 40.8, 41.3, 41.8, 42.3, 42.8, 43.3), // Lat 38 (Στερεά/Θεσσαλία)
+        doubleArrayOf(39.0, 39.5, 40.0, 40.5, 41.0, 41.5, 42.0, 42.5, 43.0, 43.5, 44.0, 44.5), // Lat 39 (Μακεδονία)
+        doubleArrayOf(40.2, 40.7, 41.2, 41.7, 42.2, 42.7, 43.2, 43.7, 44.2, 44.7, 45.2, 45.7), // Lat 40
+        doubleArrayOf(41.5, 42.0, 42.5, 43.0, 43.5, 44.0, 44.5, 45.0, 45.5, 46.0, 46.5, 47.0), // Lat 41
+        doubleArrayOf(42.5, 43.0, 43.5, 44.0, 44.5, 45.0, 45.5, 46.0, 46.5, 47.0, 47.5, 48.0)  // Lat 42 (Βόρεια σύνορα)
+    )
+
+    private const val MIN_LAT = 34.0
+    private const val MIN_LON = 19.0
+
+    fun getGeoidOffset(lat: Double, lon: Double): Double {
+        if (lat < 34.0 || lat > 42.0 || lon < 19.0 || lon > 30.0) {
+            return 41.0 // Fallback για εκτός Ελλάδας
+        }
+        val latIdx = (lat - MIN_LAT).toInt().coerceIn(0, offsets.size - 2)
+        val lonIdx = (lon - MIN_LON).toInt().coerceIn(0, offsets[0].size - 2)
+        return offsets[latIdx][lonIdx]
+    }
+}
