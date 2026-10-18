@@ -2143,7 +2143,7 @@ out body center qt;
         // Παίρνουμε την απόσταση και τα βήματα απευθείας από το Service
         val distanceInKm = LocationTrackingService.serviceTotalDistance / 1000.0
         val formattedTime = formatTime(elapsedTime)
-        val formattedDistance = String.format(java.util.Locale.US, "%.2f", distanceInKm)
+        val formattedDistance = String.format(java.util.Locale.US, "%.3f", distanceInKm)
 
         // Υπολογισμός μέσης ταχύτητας με βάση τα οριστικά δεδομένα του Service
         val finalAvgSpeed = if (elapsedTime > 0 && distanceInKm > 0) {
