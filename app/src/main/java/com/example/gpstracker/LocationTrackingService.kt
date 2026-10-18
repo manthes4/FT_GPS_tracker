@@ -267,7 +267,7 @@ class LocationTrackingService : Service(), SensorEventListener {
         val m = (timeSeconds % 3600) / 60
         val s = timeSeconds % 60
         val timeStr = String.format("%02d:%02d:%02d", h, m, s)
-        val distStr = String.format("%.2f km", distanceMeters / 1000f)
+        val distStr = String.format("%.3f km", distanceMeters / 1000f)
         val speedStr = String.format("%.1f km/h", currentSpeedKmH)
 
         val line1 = "📍 $distStr  |  ⏱️ $timeStr"

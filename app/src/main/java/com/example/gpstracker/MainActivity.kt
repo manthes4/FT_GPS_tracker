@@ -280,7 +280,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     if (totalDistance < 1000f) {
                         tvDistance.text = String.format("%.0f m", totalDistance)
                     } else {
-                        tvDistance.text = String.format("%.2f km", distanceInKm)
+                        tvDistance.text = String.format("%.3f km", distanceInKm)
                     }
 
                     tvTime.text = formatTime(elapsedTimeInSeconds)
@@ -744,7 +744,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     if (totalDistance < 1000f) {
                         tvDistance.text = String.format("%.0f m", totalDistance)
                     } else {
-                        tvDistance.text = String.format("%.2f km", distanceInKm)
+                        tvDistance.text = String.format("%.3f km", distanceInKm)
                     }
 
                     tvTime.text = formatTime(elapsedTimeInSeconds)
@@ -1691,7 +1691,7 @@ out body center qt;
                     if (totalDistance < 1000f) {
                         tvDistance.text = String.format("%.0f m", totalDistance)
                     } else {
-                        tvDistance.text = String.format("%.2f km", distanceInKm)
+                        tvDistance.text = String.format("%.3f km", distanceInKm)
                     }
                     // ------------------------------------------
 
@@ -1843,7 +1843,7 @@ out body center qt;
                     tvDistance.text = String.format("%.0f m", distanceInMeters)
                 } else {
                     val distanceInKm = distanceInMeters / 1000f
-                    tvDistance.text = String.format("%.2f km", distanceInKm)
+                    tvDistance.text = String.format("%.3f km", distanceInKm)
                 }
 
                 // --- ΔΙΟΡΘΩΣΗ ΜΕΣΗΣ ΤΑΧΥΤΗΤΑΣ ---
@@ -3435,7 +3435,7 @@ $coords
 
             // Ενημέρωση UI στατιστικών
             val distKm = LocationTrackingService.serviceTotalDistance / 1000f
-            tvDistance.text = String.format("%.2f km", distKm)
+            tvDistance.text = String.format("%.3f km", distKm)
             tvSteps.text = LocationTrackingService.serviceTotalSteps.toString()
             tvGrade.text = String.format("%.0f kcal", LocationTrackingService.serviceTotalCalories)
 
