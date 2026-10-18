@@ -146,7 +146,10 @@ class LocationTrackingService : Service(), SensorEventListener {
                     if (isAutoPaused) {
                         Log.d("AutoPauseLog", "▶️ [AUTO-RESUME] Ο χρήστης κινήθηκε ξανά!")
 
-                        // 📡 Αποστολή Broadcast για επαναφορά εικονιδίου στη MainActivity
+                        // 🛠️ ΔΙΟΡΘΩΣΗ ΧΡΟΝΟΥ: Αφαιρούμε τον χρόνο που μείναμε σε παύση από το startTime!
+                        val pauseDuration = currentTime - stationaryStartTime
+                        startTime += pauseDuration
+
                         val autoPauseIntent = Intent("AutoPauseUpdate").apply {
                             putExtra("is_auto_paused", false)
                         }
