@@ -446,6 +446,51 @@
         app:layout_constraintTop_toTopOf="parent">
 
         <!-- Τα υπόλοιπα κουμπιά (πρώτα στη σειρά) -->
+
+        <ImageButton
+            android:id="@+id/fab_search"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="7dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/search_24"
+            android:contentDescription="Search"
+            android:visibility="gone"
+            app:tint="#05BBFD" />
+
+        <ImageButton
+            android:id="@+id/button_voice_route"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="7dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_btn_speak_now"
+            android:contentDescription="Voice Route"
+            android:visibility="gone"
+            app:tint="#05BBFD" />
+
+        <ImageButton
+            android:id="@+id/button_plan_mode"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="7dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/direction"
+            android:contentDescription="Plan"
+            android:visibility="gone"
+            app:tint="#05BBFD" />
+
+        <ImageButton
+            android:id="@+id/button_undo_plan"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="7dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/undo"
+            android:contentDescription="Undo"
+            android:visibility="gone"
+            app:tint="#05BBFD" />
+
         <ImageButton
             android:id="@+id/button_weight"
             android:layout_width="40dp"
@@ -457,54 +502,10 @@
             app:tint="#05BBFD" />
 
         <ImageButton
-            android:id="@+id/fab_search"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/search_24"
-            android:contentDescription="Search"
-            android:visibility="gone"
-            app:tint="#05BBFD" />
-
-        <ImageButton
-            android:id="@+id/button_plan_mode"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/direction"
-            android:contentDescription="Plan"
-            android:visibility="gone"
-            app:tint="#05BBFD" />
-
-        <ImageButton
-            android:id="@+id/button_voice_route"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_btn_speak_now"
-            android:contentDescription="Voice Route"
-            android:visibility="gone"
-            app:tint="#05BBFD" />
-
-        <ImageButton
-            android:id="@+id/button_undo_plan"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_marginStart="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/undo"
-            android:contentDescription="Undo"
-            android:visibility="gone"
-            app:tint="#05BBFD" />
-
-        <ImageButton
             android:id="@+id/button_clear_map"
             android:layout_width="40dp"
             android:layout_height="40dp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="7dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/baseline_delete_24"
             android:contentDescription="Clear Map"
