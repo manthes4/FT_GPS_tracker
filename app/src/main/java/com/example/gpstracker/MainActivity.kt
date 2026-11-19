@@ -88,6 +88,7 @@ import android.speech.tts.TextToSpeech
 import android.content.BroadcastReceiver
 import com.example.gpstracker.LocationTrackingService
 import android.speech.tts.UtteranceProgressListener
+import android.speech.RecognizerIntent
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
@@ -213,6 +214,47 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 // Χρησιμοποιούμε την έτοιμη συνάρτησή σου που τα κάνει ΟΛΑ (parsing, γραμμή, info window, θερμίδες)
                 loadKmlFromFile(internalFile)
             }
+        }
+    }
+
+    private enum class VoiceRoutePhase {
+        IDLE,
+        WAITING_START,
+        WAITING_END
+    }
+
+    private var voiceRoutePhase = VoiceRoutePhase.IDLE
+    private var isWaitingAfterPromptSpeech = false
+
+    private val voiceRouteLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val currentPhase = voiceRoutePhase
+        voiceRoutePhase = VoiceRoutePhase.IDLE
+
+        if (result.resultCode != RESULT_OK || result.data == null) {
+            showCustomToast("Η φωνητική εισαγωγή ακυρώθηκε")
+            return@registerForActivityResult
+        }
+
+        val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+        val spokenText = matches?.firstOrNull()?.trim().orEmpty()
+
+        if (spokenText.isEmpty()) {
+            showCustomToast("Δεν ακούστηκε κάποια τοποθεσία")
+            return@registerForActivityResult
+        }
+
+        when (currentPhase) {
+            VoiceRoutePhase.WAITING_START -> {
+                showCustomToast("Αφετηρία: $spokenText")
+                resolveVoicePlace(spokenText, isStart = true)
+            }
+            VoiceRoutePhase.WAITING_END -> {
+                showCustomToast("Προορισμός: $spokenText")
+                resolveVoicePlace(spokenText, isStart = false)
+            }
+            VoiceRoutePhase.IDLE -> Unit
         }
     }
 
@@ -424,13 +466,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             showWeightInputDialog()
         }
 
-        // --- ΛΕΙΤΟΥΡΓΙΑ ΑΝΑΠΤΥΞΗΣ/ΣΥΜΠΤΥΞΗΣ ΜΕΝΟΥ ---
+// --- ΛΕΙΤΟΥΡΓΙΑ ΑΝΑΠΤΥΞΗΣ/ΣΥΜΠΤΥΞΗΣ ΜΕΝΟΥ ---
         var isMenuExpanded = false
         val btnMenuToggle = findViewById<ImageButton>(R.id.button_menu_toggle)
         val btnSearch = findViewById<ImageButton>(R.id.fab_search)
         val btnPlanMode = findViewById<ImageButton>(R.id.button_plan_mode)
         val btnUndoPlan = findViewById<ImageButton>(R.id.button_undo_plan)
+        val btnVoiceRoute = findViewById<ImageButton>(R.id.button_voice_route)
         // (Τα btnWeight και btnClearMap υπάρχουν ήδη παραπάνω, οπότε δεν βάζουμε "val" ξανά)
+
+        btnVoiceRoute.setOnClickListener {
+            startVoiceRouteFlow()
+        }
 
         btnMenuToggle.setOnClickListener {
             isMenuExpanded = !isMenuExpanded
@@ -438,6 +485,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
             btnWeight.visibility = newVisibility
             btnSearch.visibility = newVisibility
+            btnVoiceRoute.visibility = newVisibility
             btnPlanMode.visibility = newVisibility
             btnUndoPlan.visibility = newVisibility
             btnClearMap.visibility = newVisibility // Χρησιμοποιεί την υπάρχουσα μεταβλητή
@@ -719,6 +767,210 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             filter,
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+    }
+
+    private fun startVoiceRouteFlow() {
+        clearMapRouting(false)
+        voiceRoutePhase = VoiceRoutePhase.WAITING_START
+        speakPromptAndListen("Πείτε την αφετηρία", "Αφετηρία")
+    }
+
+    private fun speakPromptAndListen(promptText: String, uiPrompt: String) {
+        if (!isTtsReady || tts == null) {
+            launchSpeechRecognizer(uiPrompt)
+            return
+        }
+
+        val utteranceId = "VOICE_PROMPT_${System.currentTimeMillis()}"
+        isWaitingAfterPromptSpeech = true
+
+        tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(id: String?) {}
+
+            override fun onDone(id: String?) {
+                if (id == utteranceId && isWaitingAfterPromptSpeech) {
+                    isWaitingAfterPromptSpeech = false
+                    runOnUiThread {
+                        launchSpeechRecognizer(uiPrompt)
+                    }
+                }
+            }
+
+            @Deprecated("Deprecated in Java")
+            override fun onError(id: String?) {
+                if (id == utteranceId && isWaitingAfterPromptSpeech) {
+                    isWaitingAfterPromptSpeech = false
+                    runOnUiThread {
+                        launchSpeechRecognizer(uiPrompt)
+                    }
+                }
+            }
+        })
+
+        val params = Bundle().apply {
+            putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_MUSIC)
+        }
+        tts?.speak(promptText, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+    }
+
+    private fun launchSpeechRecognizer(promptTitle: String) {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "el-GR")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "el-GR")
+            putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, promptTitle)
+        }
+
+        try {
+            voiceRouteLauncher.launch(intent)
+        } catch (e: Exception) {
+            voiceRoutePhase = VoiceRoutePhase.IDLE
+            showCustomToast("Δεν υποστηρίζεται φωνητική αναγνώριση στη συσκευή")
+        }
+    }
+
+    private fun resolveVoicePlace(query: String, isStart: Boolean) {
+        val mapCenter = map.mapCenter
+        val refLat = mapCenter.latitude
+        val refLon = mapCenter.longitude
+
+        val lastKnownLoc = getLastKnownLocation()
+        val currentUserGeoPoint: GeoPoint? = myLocationOverlay?.myLocation
+            ?: lastKnownLoc?.let { GeoPoint(it.latitude, it.longitude) }
+
+        val distRefLat = currentUserGeoPoint?.latitude ?: refLat
+        val distRefLon = currentUserGeoPoint?.longitude ?: refLon
+
+        val urlQuery = query.replace(",", " ")
+        val url = "https://photon.komoot.io/api/" +
+                "?q=${URLEncoder.encode(urlQuery, "UTF-8")}" +
+                "&limit=15" +
+                "&lat=$refLat" +
+                "&lon=$refLon" +
+                "&location_bias_scale=0.3"
+
+        val client = OkHttpClient()
+        val request = Request.Builder()
+            .url(url)
+            .header("User-Agent", "GPSTrackerApp")
+            .build()
+
+        client.newCall(request).enqueue(object : okhttp3.Callback {
+            override fun onFailure(call: okhttp3.Call, e: IOException) {
+                runOnUiThread {
+                    voiceRoutePhase = VoiceRoutePhase.IDLE
+                    showCustomToast("Σφάλμα αναζήτησης τοποθεσίας")
+                    speak("Δεν μπόρεσα να βρω την τοποθεσία.")
+                }
+            }
+
+            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                val jsonData = response.body?.string()
+                if (jsonData.isNullOrBlank()) {
+                    runOnUiThread {
+                        voiceRoutePhase = VoiceRoutePhase.IDLE
+                        showCustomToast("Δεν βρέθηκε τοποθεσία")
+                    }
+                    return
+                }
+
+                try {
+                    val jsonObject = JSONObject(jsonData)
+                    val features = jsonObject.getJSONArray("features")
+                    val candidates = mutableListOf<SearchResult>()
+
+                    for (i in 0 until features.length()) {
+                        val feature = features.getJSONObject(i)
+                        val props = feature.getJSONObject("properties")
+                        val geometry = feature.getJSONObject("geometry")
+                        val coords = geometry.getJSONArray("coordinates")
+
+                        val resLon = coords.getDouble(0)
+                        val resLat = coords.getDouble(1)
+
+                        val road = props.optString("street", "")
+                        val name = props.optString("name", "")
+                        val houseNumber = props.optString("housenumber", "")
+                        val city = props.optString("city", "")
+
+                        val label = buildString {
+                            if (road.isNotEmpty()) {
+                                append(road)
+                                if (houseNumber.isNotEmpty()) append(" $houseNumber")
+                            } else if (name.isNotEmpty()) {
+                                append(name)
+                            } else {
+                                append(query)
+                            }
+                            if (city.isNotEmpty()) append(", $city")
+                        }
+
+                        val distArray = FloatArray(1)
+                        Location.distanceBetween(distRefLat, distRefLon, resLat, resLon, distArray)
+
+                        candidates.add(
+                            SearchResult(
+                                shortName = label,
+                                lat = resLat,
+                                lon = resLon,
+                                distance = distArray[0]
+                            )
+                        )
+                    }
+
+                    val bestMatch = candidates.firstOrNull()
+
+                    runOnUiThread {
+                        if (bestMatch == null) {
+                            voiceRoutePhase = VoiceRoutePhase.IDLE
+                            showCustomToast("Δεν βρέθηκε: $query")
+                            speak("Δεν βρέθηκε η τοποθεσία $query.")
+                            return@runOnUiThread
+                        }
+
+                        val geoPoint = GeoPoint(bestMatch.lat, bestMatch.lon)
+
+                        if (isStart) {
+                            startPoint = geoPoint
+                            startMarker?.let { map.overlays.remove(it) }
+                            startMarker = addMarker(
+                                geoPoint,
+                                "Αφετηρία: ${bestMatch.shortName}",
+                                R.drawable.edit_location_alt_24px
+                            )
+                            map.controller.animateTo(geoPoint, 16.0, 700L)
+                            map.invalidate()
+
+                            voiceRoutePhase = VoiceRoutePhase.WAITING_END
+                            speakPromptAndListen("Πείτε τον προορισμό σας", "Προορισμός")
+                        } else {
+                            endPoint = geoPoint
+                            LocationTrackingService.serviceEndPoint = geoPoint
+                            endMarker?.let { map.overlays.remove(it) }
+                            endMarker = addMarker(
+                                geoPoint,
+                                "Προορισμός: ${bestMatch.shortName}",
+                                R.drawable.edit_location_alt_24px
+                            )
+                            map.invalidate()
+
+                            val origin = startPoint
+                                ?: currentUserGeoPoint
+                                ?: (map.mapCenter as GeoPoint)
+
+                            startPoint = origin
+                            calculateRoute(origin, geoPoint)
+                        }
+                    }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        voiceRoutePhase = VoiceRoutePhase.IDLE
+                        showCustomToast("Σφάλμα ανάλυσης τοποθεσίας")
+                    }
+                }
+            }
+        })
     }
 
     private fun startUIRunnableSafely() {
