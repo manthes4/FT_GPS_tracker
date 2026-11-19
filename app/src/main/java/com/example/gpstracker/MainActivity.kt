@@ -258,6 +258,26 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private val voiceSearchLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode != RESULT_OK || result.data == null) {
+            showCustomToast("Η φωνητική αναζήτηση ακυρώθηκε")
+            return@registerForActivityResult
+        }
+
+        val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+        val spokenQuery = matches?.firstOrNull()?.trim().orEmpty()
+
+        if (spokenQuery.isEmpty()) {
+            showCustomToast("Δεν ακούστηκε τοποθεσία")
+            return@registerForActivityResult
+        }
+
+        showCustomToast("Αναζήτηση: $spokenQuery")
+        performNominatimSearch(spokenQuery)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -3241,22 +3261,7 @@ $coords
 
         listView.setOnItemClickListener { _, _, which, _ ->
             val selected = results[which]
-
-            // Χρήση πραγματικού GPS για την αφετηρία
-            val lastKnown = if (ActivityCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
-            ) {
-                locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-            } else null
-
-            val startPoint = lastKnown?.let { GeoPoint(it.latitude, it.longitude) }
-                ?: locationOverlay.myLocation
-                ?: (map.mapCenter as GeoPoint)
-
             zoomToLocation(selected.lat, selected.lon, selected.shortName)
-            calculateRoute(startPoint, GeoPoint(selected.lat, selected.lon))
             dialog.dismiss()
         }
         dialog.show()
@@ -3269,7 +3274,7 @@ $coords
         map.post {
             map.controller.setCenter(geoPoint)
             // Δοκίμασε 19.0 για να δεις τη διαφορά με το 17.0 της αρχικής
-            map.controller.animateTo(geoPoint, 18.5, 1000L)
+            map.controller.animateTo(geoPoint, 19.0, 1000L)
             map.invalidate()
         }
 
@@ -3283,7 +3288,7 @@ $coords
             position = geoPoint
             title = name
             // Χρησιμοποίησε ένα εικονίδιο που έχεις, π.χ. το baseline_push_pin_24
-            icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.baseline_gps_fixed_24)
+            icon = ContextCompat.getDrawable(this@MainActivity, R.drawable.red_marker)
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
         }
 
@@ -3300,18 +3305,49 @@ $coords
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_search, null)
         val searchEditText = dialogView.findViewById<EditText>(R.id.search_edit_text)
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Αναζήτηση Τοποθεσίας")
             .setView(dialogView)
-            .setPositiveButton("Αναζήτηση") { dialog, _ ->
+            .setPositiveButton("Αναζήτηση") { d, _ ->
                 val searchQuery = searchEditText.text.toString()
-                // ΕΔΩ ΚΑΛΕΙΣ ΤΟ ΝΕΟ ΣΥΣΤΗΜΑ
                 performNominatimSearch(searchQuery)
-                dialog.dismiss()
+                d.dismiss()
             }
-            .setNegativeButton("Ακύρωση") { dialog, _ -> dialog.dismiss() }
+            .setNegativeButton("Ακύρωση") { d, _ -> d.dismiss() }
+            .setNeutralButton(" ") { d, _ ->
+                d.dismiss()
+                launchVoiceSearch()
+            }
             .create()
-            .show()
+
+        dialog.show()
+
+        // Τοποθετεί το εικονίδιο του μικροφώνου τέρμα αριστερά (στη θέση του Neutral Button)
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.apply {
+            val micIcon = ContextCompat.getDrawable(
+                this@MainActivity,
+                android.R.drawable.ic_btn_speak_now
+            )?.mutate()
+            micIcon?.setTint(Color.parseColor("#05BBFD"))
+            setCompoundDrawablesWithIntrinsicBounds(micIcon, null, null, null)
+            contentDescription = "Φωνητική αναζήτηση"
+        }
+    }
+
+    private fun launchVoiceSearch() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "el-GR")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "el-GR")
+            putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, false)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Πείτε τοποθεσία για αναζήτηση")
+        }
+
+        try {
+            voiceSearchLauncher.launch(intent)
+        } catch (e: Exception) {
+            showCustomToast("Δεν υποστηρίζεται φωνητική αναγνώριση στη συσκευή")
+        }
     }
 
     private fun calculateRoute(startPoint: GeoPoint, endPoint: GeoPoint, isRecalculation: Boolean = false) {
